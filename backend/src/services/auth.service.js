@@ -17,12 +17,14 @@ const generateAccessToken = (userId) => {
     }
 }
 
-const signup = async ({ email, password }) => {
+const signup = async ({ email, password, username }) => {
     if (!email || !password) {
         throw new Error('Email and password are required');
     }
 
     email = email.toLowerCase().trim()
+    password = password.trim()
+    username = username.trim()
 
     if (password.length < 8) {
         throw new Error('Password must be at least 8 characters');
@@ -42,7 +44,9 @@ const signup = async ({ email, password }) => {
         data: {
             email,
             passwordHash,
-            emailVerified: false
+            username,
+            emailVerified: false,
+            lastLoginAt: new Date()
         }
     });
 
@@ -51,7 +55,8 @@ const signup = async ({ email, password }) => {
     return {
         user: {
             id: user.id,
-            email: user.email
+            email: user.email,
+            username:user.username
         },
         accessToken
     };
@@ -64,6 +69,7 @@ const login = async ({ email, password }) => {
     }
 
     email = email.toLowerCase().trim()
+    password = password.trim()
 
     const user = await prisma.user.findUnique({
         where: { email }
@@ -78,7 +84,6 @@ const login = async ({ email, password }) => {
         throw new Error('Invalid credentials');
     }
 
-    // update last login
     await prisma.user.update({
         where: { id: user.id },
         data: { lastLoginAt: new Date() }

@@ -1,0 +1,301 @@
+
+
+//////////////////////////////////////////////////////
+// ENUMS
+//////////////////////////////////////////////////////
+
+enum Platform {
+  GITHUB
+  LEETCODE
+  CODEFORCES
+  HACKERRANK
+  CODECHEF
+  CUSTOM
+}
+
+enum OAuthProvider {
+  GITHUB
+  GOOGLE
+}
+
+enum ReminderTone {
+  SUPPORTIVE
+  NEUTRAL
+  HARSH
+  FUNNY
+}
+
+enum ReminderFrequency {
+  CONSERVATIVE
+  MODERATE
+  AGGRESSIVE
+}
+
+enum StreakType {
+  GLOBAL
+  PLATFORM
+}
+
+enum StreakStatus {
+  ACTIVE
+  BROKEN
+  PAUSED
+}
+
+enum MemberRole {
+  ADMIN
+  MEMBER
+}
+
+enum NotificationType {
+  REMINDER
+  STREAK_WARNING
+  ACHIEVEMENT
+  SYSTEM
+}
+
+//////////////////////////////////////////////////////
+// USER (IDENTITY ONLY)
+//////////////////////////////////////////////////////
+
+model User {
+  id        String  @id @default(uuid())
+  email     String? @unique
+  name      String?
+  avatarUrl String?
+  timezone  String  @default("UTC")
+
+  passwordHash  String?
+  emailVerified Boolean @default(false)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastLoginAt DateTime?
+
+  oauthAccounts    OAuthAccount[]
+  platformProfiles PlatformProfile[]
+  globalProfile    GlobalProfile?
+
+  streaks           Streak[]
+  punishments       Punishment[]
+  createdCircles    AccountabilityCircle[]
+  circleMemberships AccountabilityMember[]
+  notifications     Notification[]
+}
+
+//////////////////////////////////////////////////////
+// OAUTH LOGIN ACCOUNTS
+//////////////////////////////////////////////////////
+
+model OAuthAccount {
+  id         String        @id @default(uuid())
+  userId     String
+  provider   OAuthProvider
+  providerId String
+
+  accessToken  String    @db.Text
+  refreshToken String?   @db.Text
+  expiresAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerId])
+  @@index([userId])
+}
+
+//////////////////////////////////////////////////////
+// PLATFORM PROFILE (GITHUB / LEETCODE / ETC)
+//////////////////////////////////////////////////////
+
+model PlatformProfile {
+  id             String   @id @default(uuid())
+  userId         String
+  platform       Platform
+  platformUserId String
+  username       String?
+
+  // Preferences (PER PLATFORM)
+  reminderTone      ReminderTone
+  reminderFrequency ReminderFrequency
+  strictnessLevel   Int // 1–5
+
+  // Stats (PER PLATFORM)
+  totalActiveDays  Int       @default(0)
+  lastActivityDate DateTime?
+
+  // Auth (if supported)
+  accessToken  String? @db.Text
+  refreshToken String? @db.Text
+
+  isActive     Boolean   @default(true)
+  lastSyncedAt DateTime?
+
+  goals       Goal[]
+  activities  Activity[]
+  streaks     Streak[]
+  punishments Punishment[]
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([platform, platformUserId])
+  @@index([userId])
+}
+
+//////////////////////////////////////////////////////
+// GLOBAL PROFILE (APP-WIDE DISCIPLINE)
+//////////////////////////////////////////////////////
+
+model GlobalProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+
+  reminderTone      ReminderTone
+  reminderFrequency ReminderFrequency
+  strictnessLevel   Int
+
+  totalActiveDays Int @default(0)
+  freezeDaysLeft  Int @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+//////////////////////////////////////////////////////
+// GOALS
+//////////////////////////////////////////////////////
+
+model Goal {
+  id                String @id @default(uuid())
+  platformProfileId String
+
+  target    Json // { count: 1, metric: "commit" }
+  frequency String // daily / weekly / custom
+  isActive  Boolean @default(true)
+
+  startDate DateTime  @default(now())
+  endDate   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  platformProfile PlatformProfile @relation(fields: [platformProfileId], references: [id], onDelete: Cascade)
+
+  @@index([platformProfileId, isActive])
+}
+
+//////////////////////////////////////////////////////
+// VERIFIED ACTIVITIES
+//////////////////////////////////////////////////////
+
+model Activity {
+  id                String @id @default(uuid())
+  platformProfileId String
+
+  activityType String // commit, problem_solved, pr_created
+  count        Int     @default(1)
+  metadata     Json?
+  qualityScore Float   @default(1.0)
+  isVerified   Boolean @default(true)
+
+  activityDate DateTime
+  createdAt    DateTime @default(now())
+
+  platformProfile PlatformProfile @relation(fields: [platformProfileId], references: [id], onDelete: Cascade)
+
+  @@index([platformProfileId, activityDate])
+}
+
+//////////////////////////////////////////////////////
+// STREAKS (GLOBAL OR PLATFORM)
+//////////////////////////////////////////////////////
+
+model Streak {
+  id                String  @id @default(uuid())
+  userId            String
+  platformProfileId String?
+
+  type           StreakType
+  currentLength  Int          @default(0)
+  lastActiveDate DateTime?
+  status         StreakStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platformProfile PlatformProfile? @relation(fields: [platformProfileId], references: [id])
+}
+
+//////////////////////////////////////////////////////
+// PUNISHMENTS (SCOPED)
+//////////////////////////////////////////////////////
+
+model Punishment {
+  id                String  @id @default(uuid())
+  userId            String
+  platformProfileId String?
+
+  level          Int
+  reason         String
+  restrictedApps Json
+
+  isActive    Boolean   @default(true)
+  activatedAt DateTime  @default(now())
+  expiresAt   DateTime?
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platformProfile PlatformProfile? @relation(fields: [platformProfileId], references: [id])
+}
+
+//////////////////////////////////////////////////////
+// ACCOUNTABILITY CIRCLES
+//////////////////////////////////////////////////////
+
+model AccountabilityCircle {
+  id         String  @id @default(uuid())
+  name       String
+  creatorId  String
+  maxMembers Int     @default(5)
+  isPublic   Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  creator User                   @relation(fields: [creatorId], references: [id])
+  members AccountabilityMember[]
+}
+
+model AccountabilityMember {
+  id       String     @id @default(uuid())
+  userId   String
+  circleId String
+  role     MemberRole @default(MEMBER)
+
+  joinedAt DateTime @default(now())
+
+  user   User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  circle AccountabilityCircle @relation(fields: [circleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, circleId])
+}
+
+//////////////////////////////////////////////////////
+// NOTIFICATIONS
+//////////////////////////////////////////////////////
+
+model Notification {
+  id      String           @id @default(uuid())
+  userId  String
+  type    NotificationType
+  title   String
+  message String           @db.Text
+  data    Json?
+  isRead  Boolean          @default(false)
+  sentAt  DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+}
