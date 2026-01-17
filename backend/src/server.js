@@ -28,14 +28,14 @@ async function startServer() {
     try {
 
         await prisma.$connect();
-        console.log('✅ Database connected');
+        console.log('Database connected !!!');
 
 
         app.listen(PORT, () => {
-            console.log(`🚀 Server running on port http://localhost:${PORT}`);
+            console.log(`Server running on port http://localhost:${PORT}`);
         });
     } catch (error) {
-        console.error('❌ Failed to start server:', error);
+        console.error('Failed to start server:', error);
         process.exit(1);
     }
 }
