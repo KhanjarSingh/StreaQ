@@ -3,6 +3,7 @@ import { View, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-
 import { TextInput, Button, Text, HelperText, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
+import GitHubAuthButton from '../components/GitHubAuthButton';
 
 const RegisterScreen = ({ navigation }) => {
     const { register } = useContext(AuthContext);
@@ -154,6 +155,14 @@ const RegisterScreen = ({ navigation }) => {
                         {loading ? 'DEPLOYING...' : 'DEPLOY_USER'}
                     </Button>
 
+                    <View style={styles.dividerContainer}>
+                        <View style={styles.divider} />
+                        <Text style={styles.dividerText}>OR</Text>
+                        <View style={styles.divider} />
+                    </View>
+
+                    <GitHubAuthButton onError={setError} />
+
                     <TouchableOpacity onPress={() => navigation.navigate('Login')} style={styles.linkContainer}>
                         <Text style={styles.linkText}>{'< User Exists? Go_Back />'}</Text>
                     </TouchableOpacity>
@@ -226,6 +235,22 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         letterSpacing: 1,
         fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    },
+    dividerContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginVertical: 16,
+    },
+    divider: {
+        flex: 1,
+        height: 1,
+        backgroundColor: '#333',
+    },
+    dividerText: {
+        color: '#666',
+        paddingHorizontal: 16,
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+        fontSize: 12,
     },
     linkContainer: {
         alignItems: 'center',
