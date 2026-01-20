@@ -85,16 +85,6 @@ model User {
     updatedAt   DateTime  @updatedAt
     lastLoginAt DateTime?
 
-    //   oauthAccounts    OAuthAccount[]
-    //   platformProfiles PlatformProfile[]
-    //   globalProfile    GlobalProfile?
-
-    //   streaks           Streak[]
-    //   punishments       Punishment[]
-    //   createdCircles    AccountabilityCircle[]
-    //   circleMemberships AccountabilityMember[]
-    //   notifications     Notification[]
-  
     githubProfile     GithubProfile?
 }
 
