@@ -7,7 +7,6 @@ const LandingScreen = ({ navigation }) => {
     const [cursorVisible, setCursorVisible] = useState(true);
 
     useEffect(() => {
-        // Blinking cursor effect
         const interval = setInterval(() => {
             setCursorVisible((v) => !v);
         }, 500);
@@ -19,16 +18,13 @@ const LandingScreen = ({ navigation }) => {
         <SafeAreaView style={styles.container}>
             <View style={styles.contentContainer}>
                 <View style={styles.logoSection}>
-                    {/* Title with Cursor */}
                     <View style={styles.titleRow}>
                         <Text variant="displayLarge" style={styles.title}>STREAQ</Text>
                         <Text variant="displayLarge" style={[styles.cursor, { opacity: cursorVisible ? 1 : 0 }]}>_</Text>
                     </View>
 
-                    {/* Sleek Separator Line */}
                     <View style={styles.separator} />
 
-                    {/* Subtitle */}
                     <Text variant="titleMedium" style={styles.subtitle}>
                         {`> Relentless.\n> Coding.\n> Discipline.`}
                     </Text>
@@ -78,22 +74,22 @@ const styles = StyleSheet.create({
         alignItems: 'baseline',
     },
     title: {
-        fontWeight: '900', // Extra bold
+        fontWeight: '900', 
         color: '#E0E0E0',
         letterSpacing: 2,
-        fontSize: 64, // Bigger
+        fontSize: 64,
         lineHeight: 70,
     },
     cursor: {
         fontWeight: '900',
-        color: '#00FF41', // Matrix Green
+        color: '#00FF41',
         fontSize: 64,
         lineHeight: 70,
     },
     separator: {
         height: 4,
         backgroundColor: '#444444',
-        width: 60, // Short underlined accent
+        width: 60,
         marginTop: 8,
         marginBottom: 32,
     },

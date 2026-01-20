@@ -9,7 +9,7 @@ const theme = {
   colors: {
     ...DefaultTheme.colors,
     primary: '#FFFFFF',      
-    onPrimary: '#000000',    // Black text on white buttons
+    onPrimary: '#000000',   
     primaryContainer: '#222222', 
     onPrimaryContainer: '#FFFFFF',
     secondary: '#888888',
@@ -20,9 +20,9 @@ const theme = {
     onTertiary: '#FFFFFF',
     tertiaryContainer: '#111111',
     onTertiaryContainer: '#FFFFFF',
-    background: '#000000',   // Pure Black background
-    onBackground: '#FFFFFF', // White text
-    surface: '#0A0A0A',      // Slightly lighter black for cards
+    background: '#000000',   
+    onBackground: '#FFFFFF', 
+    surface: '#0A0A0A',      
     onSurface: '#FFFFFF',
     surfaceVariant: '#121212',
     onSurfaceVariant: '#DDDDDD',
@@ -30,7 +30,7 @@ const theme = {
     inverseSurface: '#FFFFFF',
     inverseOnSurface: '#000000',
     inversePrimary: '#000000',
-    error: '#FFFFFF',        // Even error is white (or maybe gray to keep monochrome) - keeping white for contrast
+    error: '#FFFFFF',        
     onError: '#000000',
     elevation: {
       level0: 'transparent',
@@ -41,8 +41,7 @@ const theme = {
       level5: '#2A2A2A',
     },
   },
-  // Customize other properties if needed (roundness, animation)
-  roundness: 0, // Sharp edges for modern feel? Or high for rounded? Let's go with 12 for modern sleek.
+  roundness: 12, 
 };
 
 export default theme;

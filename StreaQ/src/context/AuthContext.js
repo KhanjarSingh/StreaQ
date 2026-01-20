@@ -20,10 +20,26 @@ export const AuthProvider = ({ children }) => {
             await AsyncStorage.setItem('userToken', accessToken);
             await AsyncStorage.setItem('userInfo', JSON.stringify(user));
 
-            // Setup axios interceptor for future requests
             client.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
         } catch (e) {
             console.log(`Login error: ${e}`);
+            throw e;
+        }
+    };
+
+    const externalLogin = async (accessToken, user) => {
+        try {
+            setUserInfo(user);
+            setUserToken(accessToken);
+
+            await AsyncStorage.setItem('userToken', accessToken);
+            if (user) {
+                await AsyncStorage.setItem('userInfo', JSON.stringify(user));
+            }
+
+            client.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+        } catch (e) {
+            console.log(`External Login error: ${e}`);
             throw e;
         }
     };
@@ -66,6 +82,21 @@ export const AuthProvider = ({ children }) => {
                 setUserToken(userToken);
                 setUserInfo(JSON.parse(userInfo));
                 client.defaults.headers.common['Authorization'] = `Bearer ${userToken}`;
+
+                // Refresh user profile from backend to ensure data is up to date (fixes stale github-user)
+                try {
+                    const res = await client.get('/api/users/me');
+                    if (res.data) {
+                        setUserInfo(res.data);
+                        await AsyncStorage.setItem('userInfo', JSON.stringify(res.data));
+                    }
+                } catch (err) {
+                    console.log('Failed to refresh user profile', err);
+                    if (err.response && (err.response.status === 401 || err.response.status === 403)) {
+                        // Token is stale or invalid, force logout
+                        await logout();
+                    }
+                }
             }
             setIsLoading(false);
         } catch (e) {
@@ -79,7 +110,7 @@ export const AuthProvider = ({ children }) => {
     }, []);
 
     return (
-        <AuthContext.Provider value={{ login, register, logout, isLoading, userToken, userInfo }}>
+        <AuthContext.Provider value={{ login, register, externalLogin, logout, isLoading, userToken, userInfo }}>
             {children}
         </AuthContext.Provider>
     );

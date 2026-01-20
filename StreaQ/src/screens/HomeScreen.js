@@ -7,7 +7,6 @@ import { AuthContext } from '../context/AuthContext';
 const HomeScreen = () => {
     const { logout, userInfo } = useContext(AuthContext);
 
-    // Fallback if userInfo is missing keys (depends on backend login response)
     const displayName = userInfo?.username || userInfo?.email?.split('@')[0] || 'User';
 
     return (

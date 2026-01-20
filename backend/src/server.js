@@ -1,4 +1,5 @@
 const express = require('express');
+const cookieParser = require('cookie-parser');
 const cors = require('cors');
 require('dotenv').config();
 const prisma = require('./config/db');
@@ -8,13 +9,14 @@ const PORT = process.env.PORT || 3000;
 const app = express();
 
 app.use(cors({
-  origin: '*'
+    origin: '*'
 }));
 
 
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
 
 app.get('/health', (req, res) => {
@@ -22,7 +24,7 @@ app.get('/health', (req, res) => {
 });
 
 
-app.use('/api',router)
+app.use('/api', router)
 
 async function startServer() {
     try {

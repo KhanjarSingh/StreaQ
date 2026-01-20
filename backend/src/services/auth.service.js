@@ -56,7 +56,7 @@ const signup = async ({ email, password, username }) => {
         user: {
             id: user.id,
             email: user.email,
-            username:user.username
+            username: user.username
         },
         accessToken
     };
@@ -102,5 +102,6 @@ const login = async ({ email, password }) => {
 
 module.exports = {
     signup,
-    login
+    login,
+    generateAccessToken
 };

@@ -3,6 +3,7 @@
     "name": "StreaQ",
     "slug": "StreaQ",
     "version": "1.0.0",
+    "scheme": "streaq",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -13,7 +14,8 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.khanjarsingh.StreaQ"
     },
     "android": {
       "adaptiveIcon": {
@@ -24,6 +26,9 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-web-browser"
+    ]
   }
 }

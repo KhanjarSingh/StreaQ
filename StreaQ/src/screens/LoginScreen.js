@@ -1,11 +1,12 @@
-import React, { useState, useContext } from 'react';
+
+import React, { useState, useContext, useEffect } from 'react';
 import { View, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { TextInput, Button, Text, HelperText, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
+import GitHubAuthButton from '../components/GitHubAuthButton';
 
 const LoginScreen = ({ navigation }) => {
-    // ... context and state ...
     const { login } = useContext(AuthContext);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -38,13 +39,10 @@ const LoginScreen = ({ navigation }) => {
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.topBar}>
-                <IconButton
-                    icon="arrow-left"
-                    iconColor="#FFFFFF"
-                    size={28}
-                    onPress={() => navigation.goBack()}
-                    style={styles.backButton}
-                />
+                <TouchableOpacity onPress={() => navigation.navigate('Landing')} style={styles.backButtonRow}>
+                    <IconButton icon="arrow-left" iconColor="#FFFFFF" size={24} style={{ margin: 0 }} />
+                    <Text style={styles.backText}>Back to Landing</Text>
+                </TouchableOpacity>
             </View>
 
             <View style={styles.header}>
@@ -62,7 +60,7 @@ const LoginScreen = ({ navigation }) => {
                     autoCapitalize="none"
                     keyboardType="email-address"
                     textColor="#FFFFFF"
-                    theme={{ colors: { onSurfaceVariant: '#666666' } }} // Label color
+                    theme={{ colors: { onSurfaceVariant: '#666666' } }}
                 />
 
                 <TextInput
@@ -77,7 +75,7 @@ const LoginScreen = ({ navigation }) => {
                     theme={{ colors: { onSurfaceVariant: '#666666' } }}
                 />
 
-                {error ? <HelperText type="error" visible={!!error} style={styles.mono}>{`>> ERROR: ${error}`}</HelperText> : null}
+                {error ? <HelperText type="error" visible={!!error} style={styles.mono}>{`>> ERROR: ${error} `}</HelperText> : null}
 
                 <Button
                     mode="contained"
@@ -90,6 +88,14 @@ const LoginScreen = ({ navigation }) => {
                 >
                     {loading ? 'AUTHENTICATING...' : 'AUTHENTICATE'}
                 </Button>
+
+                <View style={styles.dividerContainer}>
+                    <View style={styles.divider} />
+                    <Text style={styles.dividerText}>OR</Text>
+                    <View style={styles.divider} />
+                </View>
+
+                <GitHubAuthButton onError={setError} />
 
                 <TouchableOpacity onPress={() => navigation.navigate('Register')} style={styles.linkContainer}>
                     <Text style={styles.linkText}>{'< New User? Run_Init />'}</Text>
@@ -106,16 +112,21 @@ const styles = StyleSheet.create({
         padding: 24,
     },
     topBar: {
-        flexDirection: 'row',
-        alignItems: 'center',
         marginBottom: 16,
     },
-    backButton: {
-        margin: 0,
-        marginLeft: -12, // Align with the edge padding visually
+    backButtonRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginLeft: -4,
+    },
+    backText: {
+        color: '#FFFFFF',
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+        marginLeft: 4,
+        fontSize: 16,
     },
     header: {
-        marginBottom: 48,
+        marginBottom: 32,
     },
     title: {
         color: '#FFFFFF',
@@ -133,16 +144,16 @@ const styles = StyleSheet.create({
     },
     input: {
         backgroundColor: '#121212',
-        // fontFamily support for input varies, but we can try
     },
     mono: {
         fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     },
     button: {
         borderRadius: 0,
-        marginTop: 16,
+        marginTop: 8,
         borderWidth: 1,
         borderColor: '#333',
+        backgroundColor: '#FFFFFF',
     },
     buttonContent: {
         height: 56,
@@ -152,6 +163,36 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         letterSpacing: 1,
         fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+        color: '#000000',
+    },
+    dividerContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginVertical: 16,
+    },
+    divider: {
+        flex: 1,
+        height: 1,
+        backgroundColor: '#333',
+    },
+    dividerText: {
+        color: '#666',
+        paddingHorizontal: 16,
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+        fontSize: 12,
+    },
+    githubButton: {
+        borderRadius: 0,
+        borderWidth: 1,
+        borderColor: '#444',
+        backgroundColor: '#111',
+    },
+    githubButtonLabel: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        letterSpacing: 1,
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+        color: '#FFFFFF',
     },
     linkContainer: {
         alignItems: 'center',

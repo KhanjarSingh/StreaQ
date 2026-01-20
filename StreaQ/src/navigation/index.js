@@ -13,7 +13,7 @@ const AuthStack = createNativeStackNavigator();
 const AppStack = createNativeStackNavigator();
 
 const AuthNavigator = () => (
-    <AuthStack.Navigator screenOptions={{ headerShown: false }}>
+    <AuthStack.Navigator screenOptions={{ headerShown: false, animation: 'none', gestureEnabled: true }}>
         <AuthStack.Screen name="Landing" component={LandingScreen} />
         <AuthStack.Screen name="Login" component={LoginScreen} />
         <AuthStack.Screen name="Register" component={RegisterScreen} />
@@ -21,7 +21,7 @@ const AuthNavigator = () => (
 );
 
 const AppNavigator = () => (
-    <AppStack.Navigator screenOptions={{ headerShown: false }}>
+    <AppStack.Navigator screenOptions={{ headerShown: false, animation: 'none', gestureEnabled: true }}>
         <AppStack.Screen name="Home" component={HomeScreen} />
     </AppStack.Navigator>
 );

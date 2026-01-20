@@ -1,17 +1,17 @@
 import axios from 'axios';
 import { Platform } from 'react-native';
 
-const NGROK_URL = 'https://c338ead0c321.ngrok-free.app';
+const NGROK_URL = 'https://c7d821877957.ngrok-free.app';
 
 const getBaseUrl = () => {
-    if (NGROK_URL && NGROK_URL !== 'https://your-ngrok-url.ngrok-free.app') {
+    if (NGROK_URL && NGROK_URL !== 'https://c7d821877957.ngrok-free.app') {
         return NGROK_URL;
     }
-    return Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
+    return Platform.OS === 'android' ? 'https://c7d821877957.ngrok-free.app' : 'https://c7d821877957.ngrok-free.app';
 };
 
 const client = axios.create({
-    baseURL: getBaseUrl(),
+    baseURL: NGROK_URL,
     headers: {
         'Content-Type': 'application/json',
     },

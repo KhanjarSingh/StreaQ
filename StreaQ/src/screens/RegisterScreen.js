@@ -5,7 +5,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
 
 const RegisterScreen = ({ navigation }) => {
-    // ... (logic) ...
     const { register } = useContext(AuthContext);
 
     const [username, setUsername] = useState('');
@@ -18,7 +17,6 @@ const RegisterScreen = ({ navigation }) => {
     const [error, setError] = useState('');
 
     const validate = () => {
-        // ... (validation logic) ...
         if (!username || !email || !password || !confirmPassword) {
             setError('Missing required fields.');
             return false;
@@ -35,8 +33,6 @@ const RegisterScreen = ({ navigation }) => {
             return false;
         }
 
-        // Backend regex for reference: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/
-        // Simplified checks for better user feedback
         if (password.length < 8) {
             setError('Password complexity error: min length 8.');
             return false;
@@ -85,13 +81,10 @@ const RegisterScreen = ({ navigation }) => {
         <SafeAreaView style={styles.container}>
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 <View style={styles.topBar}>
-                    <IconButton
-                        icon="arrow-left"
-                        iconColor="#FFFFFF"
-                        size={28}
-                        onPress={() => navigation.goBack()}
-                        style={styles.backButton}
-                    />
+                    <TouchableOpacity onPress={() => navigation.navigate('Landing')} style={styles.backButtonRow}>
+                        <IconButton icon="arrow-left" iconColor="#FFFFFF" size={24} style={{ margin: 0 }} />
+                        <Text style={styles.backText}>Back to Landing</Text>
+                    </TouchableOpacity>
                 </View>
 
                 <View style={styles.header}>
@@ -178,7 +171,6 @@ const styles = StyleSheet.create({
     scrollContent: {
         padding: 24,
         flexGrow: 1,
-        // justifyContent: 'center', // Remove this to allow top alignment
     },
     topBar: {
         flexDirection: 'row',
@@ -186,9 +178,16 @@ const styles = StyleSheet.create({
         marginBottom: 16,
         marginTop: 0,
     },
-    backButton: {
-        margin: 0,
-        marginLeft: -12,
+    backButtonRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginLeft: -4,
+    },
+    backText: {
+        color: '#FFFFFF',
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+        marginLeft: 4,
+        fontSize: 16,
     },
     header: {
         marginBottom: 48,

@@ -94,6 +94,25 @@ model User {
     //   createdCircles    AccountabilityCircle[]
     //   circleMemberships AccountabilityMember[]
     //   notifications     Notification[]
+  
+    githubProfile     GithubProfile?
+}
+
+//////////////////////////////////////////////////////
+// GITHUB PROFILE
+//////////////////////////////////////////////////////
+
+model GithubProfile {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  githubId        String   @unique 
+  login           String   
+  avatarUrl       String?
+  htmlUrl         String?
+  accessToken     String?  
+  lastSyncedAt    DateTime @default(now())
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 //////////////////////////////////////////////////////
