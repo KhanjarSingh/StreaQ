@@ -188,4 +188,64 @@ const syncAutomatedGoals = async (userId) => {
     return results;
 };
 
-module.exports = { syncAutomatedGoals };
+// ─────────────────────────────────────────────────────────────────────────────
+// GITHUB FULL PROFILE  – REST stats + full contribution calendar
+// ─────────────────────────────────────────────────────────────────────────────
+
+const getGithubFullProfile = async (login, token) => {
+    const headers = { Authorization: `Bearer ${token}` };
+
+    // REST API — profile stats
+    const profileRes = await axios.get(
+        `https://api.github.com/users/${login}`,
+        { headers }
+    );
+    const p = profileRes.data;
+
+    // GraphQL — full contribution calendar
+    const query = `
+        query {
+            user(login: "${login}") {
+                contributionsCollection {
+                    contributionCalendar {
+                        totalContributions
+                        weeks {
+                            contributionDays {
+                                date
+                                contributionCount
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    `;
+    const gql = await axios.post(
+        'https://api.github.com/graphql',
+        { query },
+        { headers }
+    );
+
+    const calendar = gql.data?.data?.user?.contributionsCollection?.contributionCalendar;
+    const contributions = [];
+    for (const week of (calendar?.weeks || [])) {
+        for (const day of week.contributionDays) {
+            contributions.push({ date: day.date, count: day.contributionCount });
+        }
+    }
+
+    return {
+        login: p.login,
+        name: p.name,
+        bio: p.bio,
+        location: p.location,
+        avatarUrl: p.avatar_url,
+        publicRepos: p.public_repos,
+        followers: p.followers,
+        following: p.following,
+        totalContributions: calendar?.totalContributions || 0,
+        contributions,
+    };
+};
+
+module.exports = { syncAutomatedGoals, getGithubFullProfile };

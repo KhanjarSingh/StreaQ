@@ -1,17 +1,7 @@
 import axios from 'axios';
-import { Platform } from 'react-native';
-
-const NGROK_URL = 'https://4bfcdb4c09f4.ngrok-free.app';
-
-const getBaseUrl = () => {
-    if (NGROK_URL && NGROK_URL !== 'https://c7d821877957.ngrok-free.app') {
-        return NGROK_URL;
-    }
-    return Platform.OS === 'android' ? 'https://c7d821877957.ngrok-free.app' : 'https://c7d821877957.ngrok-free.app';
-};
 
 const client = axios.create({
-    baseURL: NGROK_URL,
+    baseURL: 'https://streaq.onrender.com',
     headers: {
         'Content-Type': 'application/json',
     },

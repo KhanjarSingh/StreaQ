@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { FlatList, View, Text, StyleSheet, Platform, Animated } from 'react-native';
+import { View, Text, StyleSheet, Platform, Animated, ScrollView } from 'react-native';
 import client from '../api/client';
 
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
@@ -38,13 +38,15 @@ const TypewriterRow = ({ item, isNew }) => {
 };
 
 // ─── TerminalConsole ──────────────────────────────────────────────────────────
+// Uses a plain ScrollView + mapped Views instead of FlatList to avoid the
+// "VirtualizedList inside ScrollView" warning when embedded in HomeScreen.
 const TerminalConsole = ({ userId, token, pollIntervalMs = 10000 }) => {
     const [logs, setLogs] = useState([]);
     const [newIds, setNewIds] = useState(new Set());
-    const listRef = useRef(null);
+    const scrollRef = useRef(null);
     const prevIdsRef = useRef(new Set());
 
-    // Blinking cursor using RN Animated (no JSI/worklets)
+    // Blinking cursor
     const cursorAnim = useRef(new Animated.Value(1)).current;
     useEffect(() => {
         const loop = Animated.loop(
@@ -82,28 +84,26 @@ const TerminalConsole = ({ userId, token, pollIntervalMs = 10000 }) => {
 
     useEffect(() => {
         if (logs.length > 0) {
-            setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
+            setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
         }
     }, [logs.length]);
 
     return (
         <View style={styles.terminal}>
-            <FlatList
-                ref={listRef}
-                data={logs}
-                keyExtractor={item => item.id}
-                renderItem={({ item }) => (
-                    <TypewriterRow item={item} isNew={newIds.has(item.id)} />
-                )}
-                scrollEnabled
-                style={styles.list}
-                contentContainerStyle={styles.listContent}
+            {/* Plain ScrollView — no nested VirtualizedList warning */}
+            <ScrollView
+                ref={scrollRef}
+                style={styles.scroll}
+                nestedScrollEnabled
                 showsVerticalScrollIndicator={false}
-                initialNumToRender={20}
-                ListEmptyComponent={
-                    <Text style={styles.empty}>{'> Awaiting system events...'}</Text>
+            >
+                {logs.length === 0
+                    ? <Text style={styles.empty}>{'> Awaiting system events...'}</Text>
+                    : logs.map(item => (
+                        <TypewriterRow key={item.id} item={item} isNew={newIds.has(item.id)} />
+                    ))
                 }
-            />
+            </ScrollView>
             <Animated.Text style={[styles.cursor, { opacity: cursorAnim }]}>_</Animated.Text>
         </View>
     );
@@ -114,12 +114,11 @@ const styles = StyleSheet.create({
         backgroundColor: '#000',
         borderWidth: 1,
         borderColor: '#1A1A1A',
-        minHeight: 160,
-        maxHeight: 280,
+        minHeight: 120,
+        maxHeight: 220,
         padding: 12,
     },
-    list: { flex: 1 },
-    listContent: { paddingBottom: 4 },
+    scroll: { flex: 1 },
     logLine: { fontFamily: MONO, fontSize: 10, lineHeight: 16, marginBottom: 2 },
     ts: { color: '#444' },
     empty: { fontFamily: MONO, fontSize: 10, color: '#444' },
