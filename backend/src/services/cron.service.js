@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const { DateTime } = require('luxon');
+const { sendWarningNotification, sendCriticalNotification } = require('./notification.service');
 const prisma = new PrismaClient();
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -22,7 +23,7 @@ const dispatchWarnings = async () => {
     // Fetch all non-completed goals with their user's timezone
     const goals = await prisma.goal.findMany({
         where: { isCompleted: false },
-        include: { user: { select: { id: true, timezone: true } } }
+        include: { user: { select: { id: true, timezone: true, expoPushToken: true } } }
     });
 
     for (const goal of goals) {
@@ -44,6 +45,9 @@ const dispatchWarnings = async () => {
                 const msg = `[WARNING] DEADLINE_APPROACHING: ${minutesLeft} min left. ${completedCount}/${goal.targetCount} ${goal.title} completed.`;
                 console.log(msg);
                 await writeSystemLog(goal.userId, 'WARNING', msg);
+                if (goal.user.expoPushToken) {
+                    await sendWarningNotification(goal.user.expoPushToken, minutesLeft, goal.title);
+                }
             }
         }
     }
@@ -59,7 +63,7 @@ const evaluateGoalConsequences = async () => {
         const goals = await prisma.goal.findMany({
             where: { isCompleted: false },
             include: {
-                user: { select: { id: true, timezone: true, lastSyncedAt: true } }
+                user: { select: { id: true, timezone: true, lastSyncedAt: true, expoPushToken: true } }
             }
         });
 
@@ -120,6 +124,9 @@ const evaluateGoalConsequences = async () => {
             const failMsg = `[CRITICAL] STREAK_RESET: Goal "${goal.title}" (${goal.id}) failed for user ${goal.userId}. Consequence issued.`;
             console.error(failMsg);
             await writeSystemLog(goal.userId, 'CRITICAL', failMsg);
+            if (goal.user.expoPushToken) {
+                await sendCriticalNotification(goal.user.expoPushToken, goal.title);
+            }
         }
 
     } catch (e) {

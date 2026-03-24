@@ -86,6 +86,7 @@ model User {
     lastLoginAt DateTime?
 
     lastSyncedAt      DateTime?
+    expoPushToken     String?
 
     githubProfile     GithubProfile?
     goals             Goal[]

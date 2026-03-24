@@ -50,52 +50,37 @@ const getGithubContributions = async (username, token) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LEETCODE  – daily challenge completion via official GraphQL API
+// LEETCODE  – fetch recent submissions via official GraphQL API
 // ─────────────────────────────────────────────────────────────────────────────
 
-const getLeetCodeDailyStatus = async (username) => {
+const fetchLeetCodeSubmissions = async (username) => {
     try {
-        // Step 1: Get today's daily challenge question slug
-        const dailyQuery = `
-            query questionOfToday {
-                activeDailyCodingChallengeQuestion {
-                    date
-                    question {
-                        titleSlug
-                        title
-                    }
-                }
-            }
-        `;
-
-        const dailyRes = await axios.post(
-            'https://leetcode.com/graphql',
-            { query: dailyQuery },
-            { headers: { 'Content-Type': 'application/json', 'Referer': 'https://leetcode.com' } }
-        );
-
-        const dailySlug = dailyRes.data?.data?.activeDailyCodingChallengeQuestion?.question?.titleSlug;
-        if (!dailySlug) return 0;
-
-        // Step 2: Check if the user has a recent accepted submission for that slug
-        const submissionQuery = `
+        const query = `
             query recentAcSubmissions($username: String!, $limit: Int!) {
                 recentAcSubmissionList(username: $username, limit: $limit) {
                     titleSlug
+                    timestamp
                 }
             }
         `;
 
-        const subRes = await axios.post(
+        const res = await axios.post(
             'https://leetcode.com/graphql',
-            { query: submissionQuery, variables: { username, limit: 20 } },
+            { query, variables: { username, limit: 20 } },
             { headers: { 'Content-Type': 'application/json', 'Referer': 'https://leetcode.com' } }
         );
 
-        const submissions = subRes.data?.data?.recentAcSubmissionList || [];
-        const solved = submissions.some(s => s.titleSlug === dailySlug);
-        return solved ? 1 : 0;
+        const submissions = res.data?.data?.recentAcSubmissionList || [];
+        if (!submissions.length) return 0;
 
+        const todayStr = new Date().toISOString().split('T')[0];
+        
+        const count = submissions.filter(sub => {
+            const subDate = new Date(parseInt(sub.timestamp) * 1000).toISOString().split('T')[0];
+            return subDate === todayStr;
+        }).length;
+
+        return count;
     } catch (e) {
         console.error('[LEETCODE_FETCH_ERROR]', e.message);
         return 0;
@@ -153,7 +138,7 @@ const syncAutomatedGoals = async (userId) => {
         if (platform === 'GITHUB' && user.githubProfile?.accessToken) {
             count = await getGithubContributions(user.githubProfile.login, user.githubProfile.accessToken);
         } else if (platform === 'LEETCODE') {
-            count = await getLeetCodeDailyStatus(user.username);
+            count = await fetchLeetCodeSubmissions(user.username);
         } else if (platform === 'CODEFORCES') {
             count = await getCodeforcesSubmissions(user.username);
         }
@@ -248,4 +233,4 @@ const getGithubFullProfile = async (login, token) => {
     };
 };
 
-module.exports = { syncAutomatedGoals, getGithubFullProfile };
+module.exports = { syncAutomatedGoals, getGithubFullProfile, fetchLeetCodeSubmissions };

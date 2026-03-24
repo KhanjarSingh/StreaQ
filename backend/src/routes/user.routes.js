@@ -94,4 +94,23 @@ usersRouter.patch('/me', authMiddleware, async (req, res) => {
     }
 });
 
+// PATCH /api/users/push-token  – update expoPushToken
+usersRouter.patch('/push-token', authMiddleware, async (req, res) => {
+    const { token } = req.body;
+    if (!token || typeof token !== 'string') {
+        return res.status(400).json({ message: 'token string required' });
+    }
+    try {
+        const user = await prisma.user.update({
+            where: { id: req.user.id },
+            data: { expoPushToken: token },
+            select: { id: true, expoPushToken: true }
+        });
+        res.json(user);
+    } catch (e) {
+        console.error('Update push token error', e);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
 module.exports = usersRouter;
