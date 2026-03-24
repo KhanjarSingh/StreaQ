@@ -127,6 +127,24 @@ enum SourcePlatform {
   CUSTOM
 }
 
+enum ProtocolType {
+  GITHUB
+  LEETCODE
+  MANUAL
+}
+
+enum ReminderFrequency {
+  FIFTEEN_MINUTES
+  THIRTY_MINUTES
+  ONE_HOUR
+}
+
+enum PunishmentLevel {
+  STRICT
+  HARSH
+  RELENTLESS
+}
+
 //////////////////////////////////////////////////////
 // GOALS & CONSEQUENCES
 //////////////////////////////////////////////////////
@@ -136,7 +154,14 @@ model Goal {
   userId          String
   title           String
   type            GoalType
+  protocolType    ProtocolType   @default(MANUAL)
   sourcePlatform  SourcePlatform
+  isActive        Boolean        @default(true)
+  requiresConfiguration Boolean  @default(false)
+  targetValue     Int            @default(1)
+  dailyDeadline   String         @default("22:30")
+  reminderFrequency ReminderFrequency @default(THIRTY_MINUTES)
+  punishmentLevel PunishmentLevel @default(STRICT)
   checkInterval   String         // e.g. "22:30"
   targetCount     Int            @default(1)
   currentCount    Int            @default(0)

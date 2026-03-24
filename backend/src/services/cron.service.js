@@ -22,7 +22,7 @@ const writeSystemLog = async (userId, level, message) => {
 const dispatchWarnings = async () => {
     // Fetch all non-completed goals with their user's timezone
     const goals = await prisma.goal.findMany({
-        where: { isCompleted: false },
+        where: { isCompleted: false, isActive: true },
         include: { user: { select: { id: true, timezone: true, expoPushToken: true } } }
     });
 
@@ -61,7 +61,7 @@ const evaluateGoalConsequences = async () => {
     try {
         // Fetch non-completed goals including the user's timezone
         const goals = await prisma.goal.findMany({
-            where: { isCompleted: false },
+            where: { isCompleted: false, isActive: true },
             include: {
                 user: { select: { id: true, timezone: true, lastSyncedAt: true, expoPushToken: true } }
             }

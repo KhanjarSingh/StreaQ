@@ -1,6 +1,41 @@
 const prisma = require('../config/db');
 const { generateAccessToken } = require('./auth.service');
 
+const ensureGithubProtocol = async (userId) => {
+    const existingProtocol = await prisma.goal.findFirst({
+        where: {
+            userId,
+            protocolType: 'GITHUB',
+        },
+    });
+
+    if (existingProtocol) {
+        return existingProtocol;
+    }
+
+    return prisma.goal.create({
+        data: {
+            userId,
+            title: 'GitHub Protocol',
+            type: 'AUTOMATED',
+            protocolType: 'GITHUB',
+            sourcePlatform: 'GITHUB',
+            isActive: true,
+            requiresConfiguration: true,
+            targetValue: 1,
+            dailyDeadline: '22:30',
+            reminderFrequency: 'THIRTY_MINUTES',
+            punishmentLevel: 'STRICT',
+            checkInterval: '22:30',
+            targetCount: 1,
+            currentCount: 0,
+            isCompleted: false,
+            warningSchedule: [30],
+            lastSyncedAt: new Date(),
+        },
+    });
+};
+
 const githubLogin = async (accessToken) => {
     const userResponse = await fetch("https://api.github.com/user", {
         headers: {
@@ -105,6 +140,8 @@ const proceedWithUser = async (email, githubUser, accessToken) => {
         });
     }
 
+    await ensureGithubProtocol(user.id);
+
     const token = generateAccessToken(user.id);
 
     return {
@@ -113,7 +150,8 @@ const proceedWithUser = async (email, githubUser, accessToken) => {
             id: user.id,
             email: user.email,
             username: user.username,
-            avatarUrl: user.avatarUrl
+            avatarUrl: user.avatarUrl,
+            protocolPromptRequired: true,
         }
     };
 }

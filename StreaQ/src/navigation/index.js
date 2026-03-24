@@ -12,6 +12,7 @@ import RegisterScreen from '../screens/RegisterScreen';
 import HomeScreen from '../screens/HomeScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import FailureGlitchScreen from '../screens/FailureGlitchScreen';
+import ProtocolConfigScreen from '../screens/ProtocolConfigScreen';
 
 const AuthStack = createNativeStackNavigator();
 const AppStack = createNativeStackNavigator();
@@ -61,6 +62,11 @@ const AppNavigator = () => (
 const AppRootNavigator = () => (
     <AppStack.Navigator screenOptions={{ headerShown: false }}>
         <AppStack.Screen name="MainTabs" component={AppNavigator} />
+        <AppStack.Screen
+            name="ProtocolConfig"
+            component={ProtocolConfigScreen}
+            options={{ animation: 'slide_from_right' }}
+        />
         <AppStack.Screen
             name="FailureGlitch"
             component={FailureGlitchScreen}

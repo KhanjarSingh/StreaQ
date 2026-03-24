@@ -4,73 +4,60 @@ import { IconButton } from 'react-native-paper';
 
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 
-const PLATFORM_META = {
-    GITHUB: { icon: 'source-branch', label: 'GITHUB_NODE', accent: '#58A6FF' },
-    LEETCODE: { icon: 'code-tags', label: 'LEETCODE_NODE', accent: '#FFBD2E' },
-    CODEFORCES: { icon: 'lightning-bolt', label: 'CODEFORCES_NODE', accent: '#39D353' },
-    CUSTOM: { icon: 'shield-sword', label: 'MANUAL_OVERRIDE', accent: '#FF4D6D' },
+const PROTOCOL_META = {
+    GITHUB: { icon: 'github', label: 'PROTOCOL_GITHUB' },
+    LEETCODE: { icon: 'code-braces', label: 'PROTOCOL_LEETCODE' },
+    MANUAL: { icon: 'shield-check', label: 'PROTOCOL_MANUAL' },
 };
 
-const formatTitle = (goal) => {
-    if (goal.type === 'MANUAL') return goal.title.toUpperCase();
-    if (goal.sourcePlatform === 'GITHUB') return 'GITHUB COMMIT WATCH';
-    if (goal.sourcePlatform === 'LEETCODE') return 'LEETCODE DAILY WATCH';
-    return goal.title.toUpperCase();
-};
-
-const GoalCard = ({ goal, progressRatio, timeRemaining, onPress, disabled }) => {
-    const meta = PLATFORM_META[goal.sourcePlatform] || PLATFORM_META.CUSTOM;
-    const accent = goal.isCompleted ? '#00FF41' : meta.accent;
-    const statusText = goal.isCompleted
-        ? 'VERIFIED'
-        : goal.type === 'MANUAL'
-            ? 'EXECUTE'
-            : `${goal.currentCount}/${goal.targetCount}`;
+const GoalCard = ({
+    goal,
+    color,
+    progressLabel,
+    footerLeft,
+    footerRight,
+    onPress,
+    disabled = false,
+    actionLabel,
+}) => {
+    const meta = PROTOCOL_META[goal.protocolType] || PROTOCOL_META.MANUAL;
 
     return (
         <TouchableOpacity
             style={[
                 styles.card,
                 {
-                    borderColor: goal.isCompleted ? 'rgba(0,255,65,0.55)' : 'rgba(88,166,255,0.18)',
-                    shadowColor: accent,
+                    borderColor: color,
+                    shadowColor: color,
+                    opacity: disabled ? 0.72 : 1,
                 },
-                disabled && styles.cardDisabled,
             ]}
+            activeOpacity={0.9}
             onPress={onPress}
             disabled={disabled}
-            activeOpacity={0.88}
         >
             <View style={styles.header}>
-                <View style={styles.titleWrap}>
-                    <IconButton icon={meta.icon} iconColor={accent} size={18} style={styles.icon} />
-                    <View style={styles.textWrap}>
-                        <Text style={styles.title}>{formatTitle(goal)}</Text>
-                        <Text style={[styles.platformTag, { color: accent }]}>{meta.label}</Text>
-                    </View>
+                <View style={styles.titleRow}>
+                    <IconButton icon={meta.icon} iconColor={color} size={18} style={styles.icon} />
+                    <Text style={[styles.title, { color }]}>{meta.label}</Text>
                 </View>
-                <Text style={[styles.status, { color: goal.isCompleted ? '#00FF41' : '#E6EDF3' }]}>{statusText}</Text>
+                {actionLabel ? <Text style={styles.action}>{actionLabel}</Text> : null}
             </View>
 
-            <View style={styles.progressTrack}>
-                <View
-                    style={[
-                        styles.progressFill,
-                        {
-                            width: progressRatio > 0 ? `${Math.max(6, Math.round(progressRatio * 100))}%` : '0%',
-                            backgroundColor: accent,
-                        },
-                    ]}
-                />
+            <View style={styles.middle}>
+                <Text style={styles.progress}>{progressLabel}</Text>
+                <Text style={styles.target}>TARGET VALUE</Text>
             </View>
 
             <View style={styles.footer}>
-                <Text style={styles.metric}>
-                    {goal.currentCount}/{goal.targetCount} TARGET
-                </Text>
-                <Text style={[styles.metric, { color: goal.isCompleted ? '#00FF41' : '#FFBD2E' }]}>
-                    {timeRemaining} REMAINING
-                </Text>
+                <View>
+                    <Text style={styles.footerLabel}>NEXT REMINDER</Text>
+                    <Text style={styles.footerValue}>{footerLeft}</Text>
+                </View>
+                <View style={styles.footerBlock}>
+                    <Text style={styles.footerLabel}>DEADLINE</Text>
+                    <Text style={styles.footerValue}>{footerRight}</Text>
+                </View>
             </View>
         </TouchableOpacity>
     );
@@ -78,77 +65,80 @@ const GoalCard = ({ goal, progressRatio, timeRemaining, onPress, disabled }) => 
 
 const styles = StyleSheet.create({
     card: {
-        backgroundColor: '#0C1016',
+        backgroundColor: '#0D121A',
         borderWidth: 1,
-        borderRadius: 18,
-        padding: 16,
+        borderRadius: 24,
+        padding: 18,
         marginBottom: 14,
         shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.22,
-        shadowRadius: 10,
-        elevation: 4,
-    },
-    cardDisabled: {
-        opacity: 0.72,
+        shadowOpacity: 0.25,
+        shadowRadius: 14,
+        elevation: 5,
     },
     header: {
         flexDirection: 'row',
-        alignItems: 'center',
         justifyContent: 'space-between',
-        marginBottom: 12,
+        alignItems: 'center',
     },
-    titleWrap: {
+    titleRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        flex: 1,
-    },
-    textWrap: {
-        flex: 1,
     },
     icon: {
         margin: 0,
-        marginRight: 6,
+        marginRight: 4,
     },
     title: {
-        color: '#E6EDF3',
-        fontFamily: MONO,
-        fontSize: 13,
-        fontWeight: '700',
-        letterSpacing: 0.7,
-    },
-    platformTag: {
-        fontFamily: MONO,
-        fontSize: 9,
-        marginTop: 3,
-        letterSpacing: 1,
-    },
-    status: {
         fontFamily: MONO,
         fontSize: 12,
         fontWeight: '700',
-        marginLeft: 10,
+        letterSpacing: 1.2,
     },
-    progressTrack: {
-        height: 6,
-        borderRadius: 999,
-        backgroundColor: '#111927',
-        overflow: 'hidden',
-        marginBottom: 10,
+    action: {
+        color: '#C9D1D9',
+        fontFamily: MONO,
+        fontSize: 10,
     },
-    progressFill: {
-        height: '100%',
-        borderRadius: 999,
+    middle: {
+        marginTop: 18,
+        marginBottom: 18,
+    },
+    progress: {
+        color: '#F0F6FC',
+        fontFamily: MONO,
+        fontSize: 28,
+        fontWeight: '800',
+        letterSpacing: 1,
+    },
+    target: {
+        color: '#6E7681',
+        fontFamily: MONO,
+        fontSize: 10,
+        marginTop: 6,
+        letterSpacing: 1,
     },
     footer: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'center',
-        gap: 12,
+        borderTopWidth: 1,
+        borderTopColor: '#1A2330',
+        paddingTop: 14,
     },
-    metric: {
-        color: '#7D8590',
+    footerBlock: {
+        alignItems: 'flex-end',
+    },
+    footerLabel: {
+        color: '#6E7681',
         fontFamily: MONO,
-        fontSize: 10,
+        fontSize: 9,
+        marginBottom: 4,
+        letterSpacing: 1,
+    },
+    footerValue: {
+        color: '#E6EDF3',
+        fontFamily: MONO,
+        fontSize: 12,
+        fontWeight: '700',
     },
 });
 

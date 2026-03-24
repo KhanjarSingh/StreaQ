@@ -141,7 +141,7 @@ const syncAutomatedGoals = async (userId) => {
     const goals = await safePrismaCall(
         `goal.findMany for user ${userId}`,
         () => prisma.goal.findMany({
-            where: { userId, type: 'AUTOMATED' }
+            where: { userId, type: 'AUTOMATED', isActive: true }
         }),
         []
     );

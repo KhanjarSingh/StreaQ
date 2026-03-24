@@ -6,19 +6,33 @@ const { getGithubFullProfile } = require('../services/platform.service');
 // GET /api/users/me  – minimal user for auth checks
 usersRouter.get('/me', authMiddleware, async (req, res) => {
     try {
-        const user = await prisma.user.findUnique({
-            where: { id: req.user.id },
-            select: {
-                id: true,
-                username: true,
-                email: true,
-                avatarUrl: true,
-                timezone: true,
-                githubProfile: true,
-            }
-        });
+        const [user, protocolPromptGoal] = await Promise.all([
+            prisma.user.findUnique({
+                where: { id: req.user.id },
+                select: {
+                    id: true,
+                    username: true,
+                    email: true,
+                    avatarUrl: true,
+                    timezone: true,
+                    githubProfile: true,
+                }
+            }),
+            prisma.goal.findFirst({
+                where: {
+                    userId: req.user.id,
+                    requiresConfiguration: true,
+                    isActive: true,
+                },
+                select: { id: true, protocolType: true },
+            }),
+        ]);
         if (!user) return res.status(404).json({ message: 'User not found' });
-        res.json(user);
+        res.json({
+            ...user,
+            protocolPromptRequired: Boolean(protocolPromptGoal),
+            pendingProtocolType: protocolPromptGoal?.protocolType || null,
+        });
     } catch (e) {
         console.error('Fetch user error', e);
         res.status(500).json({ message: 'Server error' });
@@ -28,10 +42,26 @@ usersRouter.get('/me', authMiddleware, async (req, res) => {
 // GET /api/users/profile  – full profile with live GitHub data
 usersRouter.get('/profile', authMiddleware, async (req, res) => {
     try {
-        const user = await prisma.user.findUnique({
-            where: { id: req.user.id },
-            include: { githubProfile: true }
-        });
+        const [user, protocols] = await Promise.all([
+            prisma.user.findUnique({
+                where: { id: req.user.id },
+                include: { githubProfile: true }
+            }),
+            prisma.goal.findMany({
+                where: { userId: req.user.id },
+                orderBy: { createdAt: 'asc' },
+                select: {
+                    id: true,
+                    protocolType: true,
+                    isActive: true,
+                    requiresConfiguration: true,
+                    targetValue: true,
+                    dailyDeadline: true,
+                    reminderFrequency: true,
+                    punishmentLevel: true,
+                },
+            }),
+        ]);
         if (!user) return res.status(404).json({ message: 'User not found' });
 
         let github = null;
@@ -66,8 +96,10 @@ usersRouter.get('/profile', authMiddleware, async (req, res) => {
                 timezone: user.timezone,
                 githubLogin: user.githubProfile?.login || null,
                 githubUrl: user.githubProfile?.htmlUrl || null,
+                protocolPromptRequired: protocols.some((protocol) => protocol.requiresConfiguration && protocol.isActive),
             },
             github,
+            protocols,
         });
     } catch (e) {
         console.error('Profile fetch error', e);
