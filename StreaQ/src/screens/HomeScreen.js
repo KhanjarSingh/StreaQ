@@ -1,9 +1,10 @@
-import React, { useContext, useEffect, useState, useRef } from 'react';
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
     View, StyleSheet, ScrollView, Platform, TouchableOpacity,
-    Modal, TextInput, KeyboardAvoidingView, Alert, Animated
+    Modal, TextInput, KeyboardAvoidingView, Alert, Animated, ActivityIndicator
 } from 'react-native';
-import { Text, Surface, IconButton } from 'react-native-paper';
+import { useFocusEffect } from '@react-navigation/native';
+import { Text, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
@@ -12,6 +13,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { AuthContext } from '../context/AuthContext';
 import client from '../api/client';
 import TerminalConsole from '../components/TerminalConsole';
+import GoalCard from '../components/GoalCard';
 
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 
@@ -129,34 +131,112 @@ const EvidenceModal = ({ visible, goalTitle, onConfirm, onCancel }) => {
     );
 };
 
+const PLATFORM_ORDER = { GITHUB: 0, LEETCODE: 1, CODEFORCES: 2, CUSTOM: 3 };
+
+const getClockPartsInTimezone = (date, timezone) => {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone || 'UTC',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+    });
+
+    return formatter.formatToParts(date).reduce((acc, part) => {
+        if (part.type !== 'literal') acc[part.type] = Number(part.value);
+        return acc;
+    }, {});
+};
+
+const getSecondsRemaining = (checkInterval, timezone, date) => {
+    const [targetHour = 0, targetMinute = 0] = (checkInterval || '23:59').split(':').map(Number);
+    const { hour = 0, minute = 0, second = 0 } = getClockPartsInTimezone(date, timezone);
+    const currentSeconds = (hour * 3600) + (minute * 60) + second;
+    let targetSeconds = (targetHour * 3600) + (targetMinute * 60);
+
+    if (targetSeconds < currentSeconds) {
+        targetSeconds += 24 * 3600;
+    }
+
+    return targetSeconds - currentSeconds;
+};
+
+const formatCountdown = (seconds) => {
+    const safeSeconds = Math.max(0, seconds);
+    const hours = String(Math.floor(safeSeconds / 3600)).padStart(2, '0');
+    const minutes = String(Math.floor((safeSeconds % 3600) / 60)).padStart(2, '0');
+    const secs = String(safeSeconds % 60).padStart(2, '0');
+    return `${hours}:${minutes}:${secs}`;
+};
+
+const getStatusMeta = (goals, timezone, date) => {
+    if (!goals.length) {
+        return {
+            label: 'NO TARGETS',
+            color: '#8B949E',
+            subtitle: 'AWAITING LIVE OBJECTIVES',
+        };
+    }
+
+    if (goals.every((goal) => goal.isCompleted)) {
+        return {
+            label: 'SECURED',
+            color: '#00FF41',
+            subtitle: 'ALL TARGETS VERIFIED',
+        };
+    }
+
+    const incompleteGoals = goals.filter((goal) => !goal.isCompleted);
+    const nearestDeadline = Math.min(...incompleteGoals.map((goal) => getSecondsRemaining(goal.checkInterval, timezone, date)));
+
+    if (nearestDeadline <= 3 * 60 * 60) {
+        return {
+            label: 'AT RISK',
+            color: '#FF2D55',
+            subtitle: `${formatCountdown(nearestDeadline)} TO CRITICAL WINDOW`,
+        };
+    }
+
+    return {
+        label: 'MONITORING',
+        color: '#FFBD2E',
+        subtitle: `${formatCountdown(nearestDeadline)} TO NEXT DEADLINE`,
+    };
+};
+
 // ─── HomeScreen ────────────────────────────────────────────────────────────────
 const HomeScreen = ({ navigation }) => {
-    const { userInfo, userToken } = useContext(AuthContext);
+    const { logout, userInfo, userToken } = useContext(AuthContext);
     const displayName = userInfo?.username || userInfo?.email?.split('@')[0] || 'Operator';
 
+    const [isLoading, setIsLoading] = useState(true);
     const [isSyncing, setIsSyncing] = useState(false);
-    const [goals, setGoals] = useState([
-        { id: 'g1', title: 'GitHub Commits', type: 'AUTOMATED', targetCount: 3, currentCount: 1, isCompleted: false },
-        { id: 'g2', title: 'LeetCode Daily', type: 'AUTOMATED', targetCount: 1, currentCount: 0, isCompleted: false },
-        { id: 'g3', title: 'Deep Work (4hrs)', type: 'MANUAL', targetCount: 1, currentCount: 1, isCompleted: true },
-        { id: 'g4', title: 'Gym (Hypertrophy)', type: 'MANUAL', targetCount: 1, currentCount: 0, isCompleted: false },
-    ]);
+    const [isSubmittingManual, setIsSubmittingManual] = useState(false);
+    const [isSimulatingFailure, setIsSimulatingFailure] = useState(false);
+    const [goals, setGoals] = useState([]);
+    const [timezone, setTimezone] = useState(userInfo?.timezone || 'UTC');
+    const [consoleStatus, setConsoleStatus] = useState('LIVE TELEMETRY STANDBY');
+    const [refreshLogsKey, setRefreshLogsKey] = useState(0);
+    const [now, setNow] = useState(new Date());
     const [evidenceModal, setEvidenceModal] = useState({ visible: false, goalId: null, goalTitle: '' });
 
-    // ── Pulse animation (RN Animated — no JSI) ────────────────────────────────
     const pulseAnim = useRef(new Animated.Value(1)).current;
     useEffect(() => {
         const loop = Animated.loop(
             Animated.sequence([
-                Animated.timing(pulseAnim, { toValue: 0.4, duration: 800, useNativeDriver: true }),
-                Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+                Animated.timing(pulseAnim, { toValue: 0.2, duration: 1000, useNativeDriver: true }),
+                Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
             ])
         );
         loop.start();
         return () => loop.stop();
     }, []);
 
-    // ── Haptic scheduler ──────────────────────────────────────────────────────
+    useEffect(() => {
+        const timer = setInterval(() => setNow(new Date()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+
     useEffect(() => {
         runHapticSchedule();
         const timer = setInterval(runHapticSchedule, 60 * 1000);
@@ -191,7 +271,7 @@ const HomeScreen = ({ navigation }) => {
             Notifications.removeNotificationSubscription(notificationListener);
             Notifications.removeNotificationSubscription(responseListener);
         };
-    }, [userInfo?.id]);
+    }, [navigation, userInfo?.id]);
 
     async function registerForPushNotificationsAsync() {
         let token;
@@ -221,49 +301,133 @@ const HomeScreen = ({ navigation }) => {
         return token;
     }
 
-    // ── Force Sync ─────────────────────────────────────────────────────────────
+    const fetchGoals = useCallback(async ({ silent = false } = {}) => {
+        if (!userToken) return;
+
+        if (!silent) {
+            setIsLoading(true);
+        }
+
+        try {
+            const response = await client.get('/api/goals', {
+                headers: { Authorization: `Bearer ${userToken}` },
+            });
+
+            const incomingGoals = response.data?.goals || [];
+            setGoals(incomingGoals);
+            setTimezone(response.data?.timezone || userInfo?.timezone || 'UTC');
+            setConsoleStatus(`LIVE TARGETS ONLINE :: ${incomingGoals.length} GOALS TRACKED`);
+        } catch (error) {
+            if (error.response?.status === 401) {
+                await logout();
+                return;
+            }
+
+            console.error('[HOME_FETCH_GOALS_ERROR]', error.message);
+            setConsoleStatus('LINK DEGRADED :: RETRY REQUIRED');
+            Alert.alert('LINK DEGRADED', 'Unable to fetch the latest targets from the backend.');
+        } finally {
+            if (!silent) {
+                setIsLoading(false);
+            }
+        }
+    }, [logout, userInfo?.timezone, userToken]);
+
+    useFocusEffect(
+        useCallback(() => {
+            fetchGoals();
+        }, [fetchGoals])
+    );
+
     const handleSync = async () => {
         if (isSyncing || !userInfo?.id) return;
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         setIsSyncing(true);
+        setConsoleStatus('SYNCING DATA...');
         try {
-            const response = await client.post('/api/sync', { userId: userInfo.id });
-            if (response.data?.syncedGoals?.length) {
-                const synced = response.data.syncedGoals;
-                setGoals(prev => prev.map(g => {
-                    const updated = synced.find(s => s.id === g.id);
-                    return updated
-                        ? { ...g, currentCount: updated.currentCount, isCompleted: updated.isCompleted }
-                        : g;
-                }));
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            }
-        } catch {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            await client.post(
+                '/api/sync',
+                { userId: userInfo.id },
+                { headers: { Authorization: `Bearer ${userToken}` } }
+            );
+            await fetchGoals({ silent: true });
+            setRefreshLogsKey((value) => value + 1);
+            setConsoleStatus('SYNC COMPLETE :: LIVE COUNTS RECONCILED');
+            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch (error) {
+            setConsoleStatus('SYNC FAILURE :: BACKEND UNRESPONSIVE');
+            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         } finally {
             setIsSyncing(false);
         }
     };
 
-    // ── Manual task (requires evidence) ──────────────────────────────────────
     const onManualTaskPress = (goal) => {
         if (goal.isCompleted) return;
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
         setEvidenceModal({ visible: true, goalId: goal.id, goalTitle: goal.title });
     };
 
-    const handleEvidenceConfirm = ({ note, link }) => {
+    const handleEvidenceConfirm = async ({ note, link }) => {
         const { goalId } = evidenceModal;
-        setEvidenceModal({ visible: false, goalId: null, goalTitle: '' });
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-        console.log(`[MANUAL_VERIFY] Goal ${goalId} — Note: "${note}" Link: "${link}"`);
-        setGoals(prev => prev.map(g =>
-            g.id === goalId ? { ...g, currentCount: g.targetCount, isCompleted: true } : g
-        ));
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setIsSubmittingManual(true);
+        setConsoleStatus('MANUAL OVERRIDE :: VERIFYING EVIDENCE');
+
+        try {
+            await client.patch(
+                `/api/goals/${goalId}/verify`,
+                { note, link },
+                { headers: { Authorization: `Bearer ${userToken}` } }
+            );
+
+            setEvidenceModal({ visible: false, goalId: null, goalTitle: '' });
+            await fetchGoals({ silent: true });
+            setRefreshLogsKey((value) => value + 1);
+            setConsoleStatus('MANUAL OVERRIDE ACCEPTED');
+            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch (error) {
+            setConsoleStatus('MANUAL OVERRIDE REJECTED');
+            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            Alert.alert('VERIFICATION FAILED', 'The manual target could not be verified.');
+        } finally {
+            setIsSubmittingManual(false);
+        }
     };
 
-    const activeStreak = goals.every(g => g.isCompleted) ? 'SECURED' : 'AT RISK';
-    const streakColor = activeStreak === 'SECURED' ? '#00FF41' : '#FF003C';
+    const handleSimulateFailure = async () => {
+        if (isSimulatingFailure || goals.length === 0) return;
+
+        const targetGoal = goals.find((goal) => !goal.isCompleted) || goals[0];
+        if (!targetGoal) return;
+
+        setIsSimulatingFailure(true);
+        setConsoleStatus(`SIMULATING FAILURE :: ${targetGoal.title.toUpperCase()}`);
+
+        try {
+            await client.post(
+                `/api/goals/${targetGoal.id}/simulate-failure`,
+                {},
+                { headers: { Authorization: `Bearer ${userToken}` } }
+            );
+            setRefreshLogsKey((value) => value + 1);
+            await fetchGoals({ silent: true });
+            navigation.navigate('FailureGlitch');
+        } catch (error) {
+            Alert.alert('SIMULATION FAILED', 'Unable to trigger the corruption protocol.');
+        } finally {
+            setIsSimulatingFailure(false);
+        }
+    };
+
+    const automatedGoals = goals
+        .filter((goal) => goal.type === 'AUTOMATED')
+        .sort((a, b) => (PLATFORM_ORDER[a.sourcePlatform] ?? 99) - (PLATFORM_ORDER[b.sourcePlatform] ?? 99));
+    const manualGoals = goals.filter((goal) => goal.type === 'MANUAL');
+    const statusMeta = getStatusMeta(goals, timezone, now);
+    const incompleteGoals = goals.filter((goal) => !goal.isCompleted);
+    const primaryRemaining = incompleteGoals.length
+        ? formatCountdown(Math.min(...incompleteGoals.map((goal) => getSecondsRemaining(goal.checkInterval, timezone, now))))
+        : '00:00:00';
 
     return (
         <SafeAreaView style={styles.container}>
@@ -274,159 +438,213 @@ const HomeScreen = ({ navigation }) => {
                 onCancel={() => setEvidenceModal({ visible: false, goalId: null, goalTitle: '' })}
             />
 
-            {/* HEADER */}
             <View style={styles.header}>
                 <View>
-                    <Text style={styles.greeting}>// TERMINAL_ACCESS_GRANTED</Text>
+                    <Text style={styles.greeting}>// COMMAND_CENTER_2.0</Text>
                     <Text style={styles.username}>usr: {displayName}</Text>
+                    <Text style={styles.timezoneText}>tz: {timezone}</Text>
                 </View>
-                <Animated.View style={[styles.statusBadge, { opacity: pulseAnim }]}>
-                    <View style={[styles.onlineDot, { backgroundColor: isSyncing ? '#FFBD2E' : '#00FF41' }]} />
-                    <Text style={[styles.statusText, { color: isSyncing ? '#FFBD2E' : '#00FF41' }]}>
-                        {isSyncing ? 'SYNCING...' : 'ONLINE'}
-                    </Text>
-                </Animated.View>
+                <View style={styles.headerRight}>
+                    <View style={styles.statusBadge}>
+                        <View style={[styles.onlineDot, { backgroundColor: isSyncing ? '#FFBD2E' : '#00FF41' }]} />
+                        <Text style={[styles.statusText, { color: isSyncing ? '#FFBD2E' : '#00FF41' }]}>
+                            {isSyncing ? 'SYNCING' : 'ONLINE'}
+                        </Text>
+                    </View>
+                    <View style={styles.pulseRow}>
+                        <Animated.View style={[styles.pulseDot, { opacity: pulseAnim }]} />
+                        <Text style={styles.pulseText}>LIVE PULSE</Text>
+                    </View>
+                </View>
             </View>
 
-            {/* Remove ScrollView and use a FlatList or a regular View inside SafeArea if it is mostly static/nested flatlists */}
-            <View style={{flex: 1}}>
+            <View style={{ flex: 1 }}>
                 <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-
-                {/* STREAK CARD */}
-                <Surface style={[styles.card, { borderColor: streakColor }]} elevation={0}>
-                    <View style={styles.cardHeader}>
-                        <IconButton icon="fire" iconColor={streakColor} size={24} style={styles.cardIcon} />
-                        <Text style={[styles.cardTitle, { color: streakColor }]}>GLOBAL STREAK STATUS</Text>
-                    </View>
-                    <Text style={[styles.statValue, { color: streakColor }]}>{activeStreak}</Text>
-                    <Text style={styles.statLabel}>DEADLINE: 22:30:00</Text>
-                    <TouchableOpacity onPress={() => navigation.navigate('FailureGlitch')} style={styles.devBtn}>
-                        <Text style={styles.devBtnText}>{'> [TEST] SIMULATE FAILURE'}</Text>
-                    </TouchableOpacity>
-                </Surface>
-
-                {/* TARGETS */}
-                <View style={styles.sectionHeaderRow}>
-                    <Text style={styles.sectionTitle}>{'> TARGETS'}</Text>
-                    <TouchableOpacity onPress={handleSync}>
-                        <Text style={styles.syncBtnText}>[ FORCE_SYNC ]</Text>
-                    </TouchableOpacity>
-                </View>
-
-                {goals.filter(g => g.type === 'AUTOMATED').map(goal => (
-                    <View key={goal.id} style={styles.goalRow}>
-                        <View style={styles.goalInfo}>
-                            <Text style={styles.goalTitle}>{goal.title}</Text>
-                            <Text style={styles.goalSub}>[AUTOMATED_WATCHER]</Text>
+                    <View style={[styles.streakCard, statusMeta.label === 'AT RISK' && styles.streakCardRisk, { borderColor: statusMeta.color }]}>
+                        <View style={styles.streakTopRow}>
+                            <View>
+                                <Text style={[styles.streakEyebrow, { color: statusMeta.color }]}>GLOBAL STREAK STATUS</Text>
+                                <Text style={[styles.streakValue, { color: statusMeta.color }]}>{`STATUS: ${statusMeta.label}`}</Text>
+                            </View>
+                            <IconButton
+                                icon={statusMeta.label === 'SECURED' ? 'shield-check' : 'alert-decagram'}
+                                iconColor={statusMeta.color}
+                                size={24}
+                                style={{ margin: 0 }}
+                            />
                         </View>
-                        <View style={styles.goalProgress}>
-                            <Text style={[styles.progressText, { color: goal.isCompleted ? '#00FF41' : '#FFBD2E' }]}>
-                                {goal.currentCount}/{goal.targetCount}
+
+                        <Text style={styles.streakSubtitle}>{statusMeta.subtitle}</Text>
+
+                        <View style={styles.streakMetrics}>
+                            <View style={styles.metricBlock}>
+                                <Text style={styles.metricLabel}>TIME REMAINING</Text>
+                                <Text style={styles.metricValue}>{primaryRemaining}</Text>
+                            </View>
+                            <View style={styles.metricBlock}>
+                                <Text style={styles.metricLabel}>OBJECTIVES</Text>
+                                <Text style={styles.metricValue}>{goals.length}</Text>
+                            </View>
+                        </View>
+
+                        <TouchableOpacity onPress={handleSimulateFailure} style={styles.devBtn} disabled={isSimulatingFailure || goals.length === 0}>
+                            <Text style={styles.devBtnText}>
+                                {isSimulatingFailure ? '> [TEST] FAILURE PROTOCOL ARMED...' : '> [TEST] SIMULATE FAILURE'}
                             </Text>
-                            <View style={[styles.indicatorLine, { backgroundColor: goal.isCompleted ? '#00FF41' : '#FF003C' }]} />
+                        </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.sectionHeaderRow}>
+                        <View>
+                            <Text style={styles.sectionTitle}>{'> TARGET GRID'}</Text>
+                            <Text style={styles.sectionSubTitle}>{consoleStatus}</Text>
+                        </View>
+                        <TouchableOpacity onPress={handleSync} style={styles.syncButton} disabled={isSyncing}>
+                            {isSyncing ? <ActivityIndicator size="small" color="#58A6FF" /> : <Text style={styles.syncBtnText}>[ FORCE_SYNC ]</Text>}
+                        </TouchableOpacity>
+                    </View>
+
+                    {isLoading ? (
+                        <View style={styles.loadingCard}>
+                            <ActivityIndicator size="small" color="#00FF41" />
+                            <Text style={styles.loadingText}>FETCHING LIVE GOALS...</Text>
+                        </View>
+                    ) : (
+                        <>
+                            {automatedGoals.map((goal) => (
+                                <GoalCard
+                                    key={goal.id}
+                                    goal={goal}
+                                    progressRatio={Math.min(goal.currentCount / Math.max(goal.targetCount, 1), 1)}
+                                    timeRemaining={formatCountdown(getSecondsRemaining(goal.checkInterval, timezone, now))}
+                                />
+                            ))}
+
+                            <Text style={[styles.sectionTitle, { marginTop: 18 }]}>{'> MANUAL OVERRIDES'}</Text>
+                            <Text style={styles.sectionSubTitle}>HEAVY CONFIRMATION HAPTICS ENABLED</Text>
+
+                            {manualGoals.map((goal) => (
+                                <GoalCard
+                                    key={goal.id}
+                                    goal={goal}
+                                    progressRatio={Math.min(goal.currentCount / Math.max(goal.targetCount, 1), 1)}
+                                    timeRemaining={formatCountdown(getSecondsRemaining(goal.checkInterval, timezone, now))}
+                                    onPress={() => onManualTaskPress(goal)}
+                                    disabled={goal.isCompleted || isSubmittingManual}
+                                />
+                            ))}
+                        </>
+                    )}
+
+                    <View style={styles.logSection}>
+                        <Text style={styles.sectionTitle}>{'> SYSTEM LOGS'}</Text>
+                        <Text style={styles.sectionSubTitle}>LIVE DATABASE FEED :: AUTO-SCROLLING</Text>
+                        <View style={{ height: 250 }}>
+                            <TerminalConsole
+                                userId={userInfo?.id}
+                                token={userToken}
+                                pollIntervalMs={5000}
+                                refreshKey={refreshLogsKey}
+                            />
                         </View>
                     </View>
-                ))}
 
-                {/* MANUAL OVERRIDES */}
-                <Text style={[styles.sectionTitle, { marginTop: 24 }]}>{'> MANUAL_OVERRIDES'}</Text>
-                {goals.filter(g => g.type === 'MANUAL').map(goal => (
-                    <TouchableOpacity
-                        key={goal.id}
-                        style={[styles.goalRow, goal.isCompleted && styles.goalRowCompleted]}
-                        onPress={() => onManualTaskPress(goal)}
-                        disabled={goal.isCompleted}
-                    >
-                        <View style={styles.goalInfo}>
-                            <Text style={styles.goalTitle}>{goal.title}</Text>
-                            <Text style={styles.goalSub}>
-                                {goal.isCompleted ? '[VERIFIED — SESSION LOGGED]' : '[REQUIRES EVIDENCE]'}
-                            </Text>
-                        </View>
-                        <View style={styles.toggleContainer}>
-                            {goal.isCompleted ? (
-                                <Text style={[styles.progressText, { color: '#00FF41' }]}>VERIFIED</Text>
-                            ) : (
-                                <View style={styles.actionSwitch}>
-                                    <Text style={styles.switchText}>EXECUTE</Text>
-                                </View>
-                            )}
-                        </View>
-                    </TouchableOpacity>
-                ))}
-
-                {/* SYSTEM LOGS */}
-                <View style={{ marginTop: 32, marginBottom: 32 }}>
-                    <Text style={styles.sectionTitle}>{'> SYSTEM_LOGS'}</Text>
-                    {/* Replaced TerminalConsole internal ScrollView with fixed height / FlatList in TerminalConsole config */}
-                    <View style={{height: 250}}>
-                        <TerminalConsole userId={userInfo?.id} token={userToken} pollIntervalMs={10000} />
-                    </View>
-                </View>
-
-            </ScrollView>
+                </ScrollView>
             </View>
         </SafeAreaView>
     );
 };
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#050505' },
-    scrollContent: { padding: 20 },
+    container: { flex: 1, backgroundColor: '#05070D' },
+    scrollContent: { padding: 20, paddingBottom: 40 },
     header: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-        paddingHorizontal: 20, marginBottom: 24,
+        paddingHorizontal: 20, marginBottom: 20,
     },
-    greeting: { color: '#444', fontFamily: MONO, fontSize: 10, marginBottom: 4 },
-    username: { color: '#E0E0E0', fontWeight: 'bold', fontSize: 18, fontFamily: MONO },
+    greeting: { color: '#4B5563', fontFamily: MONO, fontSize: 10, marginBottom: 4 },
+    username: { color: '#E6EDF3', fontWeight: 'bold', fontSize: 18, fontFamily: MONO },
+    timezoneText: { color: '#58A6FF', fontFamily: MONO, fontSize: 10, marginTop: 4 },
+    headerRight: { alignItems: 'flex-end' },
     statusBadge: {
         flexDirection: 'row', alignItems: 'center',
-        backgroundColor: '#111', paddingHorizontal: 12, paddingVertical: 6,
-        borderWidth: 1, borderColor: '#333',
+        backgroundColor: '#0D1117', paddingHorizontal: 12, paddingVertical: 7,
+        borderWidth: 1, borderColor: '#1F2937', borderRadius: 999,
     },
-    onlineDot: { width: 8, height: 8, marginRight: 8 },
-    statusText: { color: '#00FF41', fontSize: 10, fontWeight: 'bold', fontFamily: MONO },
-    card: {
-        backgroundColor: '#0A0A0A', padding: 20,
-        borderWidth: 1, borderColor: '#333', marginBottom: 24,
+    onlineDot: { width: 8, height: 8, marginRight: 8, borderRadius: 999 },
+    statusText: { color: '#00FF41', fontSize: 10, fontWeight: 'bold', fontFamily: MONO, letterSpacing: 1 },
+    pulseRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
+    pulseDot: { width: 8, height: 8, borderRadius: 999, backgroundColor: '#00FF41', marginRight: 8 },
+    pulseText: { color: '#8B949E', fontFamily: MONO, fontSize: 10, letterSpacing: 1 },
+    streakCard: {
+        backgroundColor: 'rgba(13,17,23,0.92)',
+        borderWidth: 1,
+        borderRadius: 22,
+        padding: 20,
+        marginBottom: 24,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.2,
+        shadowRadius: 14,
+        elevation: 5,
     },
-    cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-    cardIcon: { margin: 0, marginRight: -4 },
-    cardTitle: { color: '#E0E0E0', fontSize: 12, fontWeight: '900', fontFamily: MONO, letterSpacing: 2 },
-    statValue: { color: '#E0E0E0', fontWeight: '900', fontSize: 32, fontFamily: MONO, letterSpacing: 2 },
-    statLabel: { color: '#8B949E', fontSize: 10, marginTop: 4, fontFamily: MONO },
-    devBtn: { marginTop: 12 },
-    devBtnText: { color: '#FF003C', fontFamily: MONO, fontSize: 9, opacity: 0.6 },
+    streakCardRisk: {
+        shadowColor: '#FF2D55',
+        shadowOpacity: 0.4,
+        elevation: 8,
+    },
+    streakTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    streakEyebrow: { fontFamily: MONO, fontSize: 11, letterSpacing: 1.3, marginBottom: 6 },
+    streakValue: { fontFamily: MONO, fontSize: 28, fontWeight: '900', letterSpacing: 1.5 },
+    streakSubtitle: { color: '#8B949E', fontFamily: MONO, fontSize: 10, marginTop: 10 },
+    streakMetrics: { flexDirection: 'row', gap: 12, marginTop: 18 },
+    metricBlock: {
+        flex: 1,
+        backgroundColor: '#0A0F17',
+        borderWidth: 1,
+        borderColor: '#18202D',
+        borderRadius: 14,
+        padding: 12,
+    },
+    metricLabel: { color: '#6E7681', fontFamily: MONO, fontSize: 9, marginBottom: 6 },
+    metricValue: { color: '#E6EDF3', fontFamily: MONO, fontSize: 15, fontWeight: '700' },
+    devBtn: { marginTop: 14, alignSelf: 'flex-start' },
+    devBtnText: { color: '#FF4D6D', fontFamily: MONO, fontSize: 10, opacity: 0.88 },
     sectionHeaderRow: {
         flexDirection: 'row', justifyContent: 'space-between',
-        alignItems: 'flex-end', marginBottom: 16,
+        alignItems: 'center', marginBottom: 16,
     },
-    sectionTitle: { color: '#00FF41', fontFamily: MONO, fontWeight: 'bold', fontSize: 14, letterSpacing: 1 },
+    sectionTitle: { color: '#00FF41', fontFamily: MONO, fontWeight: 'bold', fontSize: 14, letterSpacing: 1.2 },
+    sectionSubTitle: { color: '#6E7681', fontFamily: MONO, fontSize: 10, marginTop: 4 },
+    syncButton: {
+        minWidth: 120,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#22324A',
+        borderRadius: 999,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        backgroundColor: '#08111E',
+    },
     syncBtnText: { color: '#58A6FF', fontFamily: MONO, fontSize: 10, fontWeight: 'bold' },
-    goalRow: {
-        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-        backgroundColor: '#111', borderWidth: 1, borderColor: '#222',
-        padding: 16, marginBottom: 12,
+    loadingCard: {
+        backgroundColor: '#0C1016',
+        borderWidth: 1,
+        borderColor: '#18202D',
+        borderRadius: 18,
+        padding: 18,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        marginBottom: 8,
     },
-    goalRowCompleted: { borderColor: '#00FF41', opacity: 0.8 },
-    goalInfo: { flex: 1 },
-    goalTitle: { color: '#E0E0E0', fontFamily: MONO, fontWeight: 'bold', fontSize: 14 },
-    goalSub: { color: '#666', fontFamily: MONO, fontSize: 10, marginTop: 4 },
-    goalProgress: { alignItems: 'flex-end' },
-    progressText: { fontFamily: MONO, fontWeight: 'bold', fontSize: 18 },
-    indicatorLine: { width: 30, height: 2, marginTop: 4 },
-    toggleContainer: { alignItems: 'flex-end' },
-    actionSwitch: {
-        borderWidth: 1, borderColor: '#FF003C',
-        paddingVertical: 6, paddingHorizontal: 12,
-        backgroundColor: 'rgba(255, 0, 60, 0.1)',
-    },
-    switchText: { color: '#FF003C', fontFamily: MONO, fontSize: 10, fontWeight: 'bold' },
+    loadingText: { color: '#8B949E', fontFamily: MONO, fontSize: 11 },
+    logSection: { marginTop: 28, marginBottom: 16 },
     modalOverlay: {
         flex: 1, backgroundColor: 'rgba(0,0,0,0.85)',
         justifyContent: 'center', padding: 20,
     },
-    modalBox: { backgroundColor: '#0A0A0A', borderWidth: 1, borderColor: '#333', padding: 24 },
+    modalBox: { backgroundColor: '#0A0A0A', borderWidth: 1, borderColor: '#22324A', padding: 24, borderRadius: 20 },
     modalTitle: { color: '#00FF41', fontFamily: MONO, fontWeight: 'bold', fontSize: 16, marginBottom: 4 },
     modalSub: { color: '#666', fontFamily: MONO, fontSize: 11, marginBottom: 20 },
     modalLabel: { color: '#8B949E', fontFamily: MONO, fontSize: 10, marginBottom: 6 },

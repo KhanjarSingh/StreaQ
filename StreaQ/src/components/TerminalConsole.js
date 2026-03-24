@@ -40,7 +40,7 @@ const TypewriterRow = ({ item, isNew }) => {
 // ─── TerminalConsole ──────────────────────────────────────────────────────────
 // Uses a plain ScrollView + mapped Views instead of FlatList to avoid the
 // "VirtualizedList inside ScrollView" warning when embedded in HomeScreen.
-const TerminalConsole = ({ userId, token, pollIntervalMs = 10000 }) => {
+const TerminalConsole = ({ userId, token, pollIntervalMs = 10000, refreshKey = 0 }) => {
     const [logs, setLogs] = useState([]);
     const [newIds, setNewIds] = useState(new Set());
     const scrollRef = useRef(null);
@@ -83,6 +83,10 @@ const TerminalConsole = ({ userId, token, pollIntervalMs = 10000 }) => {
     }, [fetchLogs, pollIntervalMs]);
 
     useEffect(() => {
+        fetchLogs();
+    }, [fetchLogs, refreshKey]);
+
+    useEffect(() => {
         if (logs.length > 0) {
             setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
         }
@@ -111,12 +115,13 @@ const TerminalConsole = ({ userId, token, pollIntervalMs = 10000 }) => {
 
 const styles = StyleSheet.create({
     terminal: {
-        backgroundColor: '#000',
+        backgroundColor: '#020409',
         borderWidth: 1,
-        borderColor: '#1A1A1A',
+        borderColor: '#132033',
         minHeight: 120,
         maxHeight: 220,
         padding: 12,
+        borderRadius: 16,
     },
     scroll: { flex: 1 },
     logLine: { fontFamily: MONO, fontSize: 10, lineHeight: 16, marginBottom: 2 },
