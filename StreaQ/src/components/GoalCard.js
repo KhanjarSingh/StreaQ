@@ -19,6 +19,7 @@ const GoalCard = ({
     onPress,
     disabled = false,
     actionLabel,
+    actionSlot,
 }) => {
     const meta = PROTOCOL_META[goal.protocolType] || PROTOCOL_META.MANUAL;
 
@@ -41,7 +42,7 @@ const GoalCard = ({
                     <IconButton icon={meta.icon} iconColor={color} size={18} style={styles.icon} />
                     <Text style={[styles.title, { color }]}>{meta.label}</Text>
                 </View>
-                {actionLabel ? <Text style={styles.action}>{actionLabel}</Text> : null}
+                {actionSlot || (actionLabel ? <Text style={styles.action}>{actionLabel}</Text> : null)}
             </View>
 
             <View style={styles.middle}>

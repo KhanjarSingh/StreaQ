@@ -17,11 +17,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { AuthContext } from '../context/AuthContext';
 import client from '../api/client';
 import GoalCard from '../components/GoalCard';
 
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
+const HOLD_DURATION_MS = 1100;
 
 if (Device.isDevice) {
     Notifications.setNotificationHandler({
@@ -48,41 +50,154 @@ const getProtocolColor = (goal) => {
     return '#58A6FF';
 };
 
-const VerifyModal = ({ visible, goal, onCancel, onConfirm, saving }) => {
-    const [note, setNote] = useState('');
+const HoldToConfirmButton = ({ label, color, disabled, onComplete }) => {
+    const progress = useRef(new Animated.Value(0)).current;
+    const completedRef = useRef(false);
 
-    useEffect(() => {
-        if (!visible) setNote('');
-    }, [visible]);
+    const finishHold = useCallback(() => {
+        if (completedRef.current) return;
+        completedRef.current = true;
+        onComplete();
+    }, [onComplete]);
+
+    const reset = () => {
+        completedRef.current = false;
+        progress.stopAnimation();
+        Animated.timing(progress, {
+            toValue: 0,
+            duration: 140,
+            useNativeDriver: false,
+        }).start();
+    };
+
+    const start = () => {
+        completedRef.current = false;
+        progress.setValue(0);
+        Animated.timing(progress, {
+            toValue: 1,
+            duration: HOLD_DURATION_MS,
+            useNativeDriver: false,
+        }).start(({ finished }) => {
+            if (finished) {
+                finishHold();
+            }
+        });
+    };
+
+    const width = progress.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['0%', '100%'],
+    });
 
     return (
-        <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-            <View style={styles.modalOverlay}>
-                <View style={styles.modalCard}>
-                    <Text style={styles.modalTitle}>MANUAL PROTOCOL VERIFY</Text>
-                    <Text style={styles.modalSubtitle}>{goal?.title || 'Manual Protocol'}</Text>
-                    <TextInput
-                        style={styles.modalInput}
-                        value={note}
-                        onChangeText={setNote}
-                        placeholder="What did you complete?"
-                        placeholderTextColor="#55606D"
-                        multiline
+        <TouchableOpacity
+            disabled={disabled}
+            activeOpacity={0.9}
+            style={[styles.holdButton, { borderColor: color, opacity: disabled ? 0.65 : 1 }]}
+            onPressIn={start}
+            onPressOut={reset}
+            onPress={undefined}
+        >
+            <Animated.View style={[styles.holdFill, { backgroundColor: color, width }]} />
+            <Text style={[styles.holdText, { color }]}>{label}</Text>
+        </TouchableOpacity>
+    );
+};
+
+const ConfirmModal = ({
+    visible,
+    goal,
+    note,
+    onNoteChange,
+    onCancel,
+    onProceed,
+    saving,
+    requiresPhoto,
+}) => (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+        <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+                <Text style={styles.modalTitle}>CONFIRM_ACTION</Text>
+                <Text style={styles.modalSubtitle}>
+                    Are you sure you completed {goal?.title ? `[${goal.title.toUpperCase()}]` : '[TASK]'}?
+                </Text>
+                <Text style={styles.warningText}>
+                    False reporting will result in a permanent ban/reset.
+                </Text>
+
+                <TextInput
+                    style={styles.modalInput}
+                    value={note}
+                    onChangeText={onNoteChange}
+                    placeholder={requiresPhoto ? 'Add a short training note before capturing evidence...' : 'Add a quick completion note...'}
+                    placeholderTextColor="#55606D"
+                    multiline
+                />
+
+                {requiresPhoto ? <Text style={styles.photoHint}>GYM PROTOCOL REQUIRES AN EVIDENCE PHOTO BEFORE COMPLETION.</Text> : null}
+
+                <View style={styles.modalActions}>
+                    <TouchableOpacity style={styles.modalCancel} onPress={onCancel}>
+                        <Text style={styles.modalCancelText}>[ CANCEL ]</Text>
+                    </TouchableOpacity>
+                    <HoldToConfirmButton
+                        label={saving ? '[ PROCESSING... ]' : '[ PROCEED ]'}
+                        color="#00FF41"
+                        disabled={saving}
+                        onComplete={onProceed}
                     />
-                    <View style={styles.modalActions}>
-                        <TouchableOpacity style={styles.modalCancel} onPress={onCancel}>
-                            <Text style={styles.modalCancelText}>[ ABORT ]</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={styles.modalConfirm}
-                            disabled={saving}
-                            onPress={() => onConfirm(note)}
-                        >
-                            <Text style={styles.modalConfirmText}>
-                                {saving ? '[ VERIFYING... ]' : '[ VERIFY PROTOCOL ]'}
-                            </Text>
-                        </TouchableOpacity>
-                    </View>
+                </View>
+            </View>
+        </View>
+    </Modal>
+);
+
+const CameraEvidenceModal = ({ visible, onCancel, onCaptured, saving }) => {
+    const [permission, requestPermission] = useCameraPermissions();
+    const cameraRef = useRef(null);
+
+    useEffect(() => {
+        if (visible && !permission?.granted) {
+            requestPermission();
+        }
+    }, [permission?.granted, requestPermission, visible]);
+
+    const takePicture = async () => {
+        try {
+            const result = await cameraRef.current?.takePictureAsync({ quality: 0.5, base64: false });
+            if (result?.uri) {
+                onCaptured(result.uri);
+            }
+        } catch (error) {
+            Alert.alert('CAMERA FAILED', 'Unable to capture the evidence photo.');
+        }
+    };
+
+    return (
+        <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
+            <View style={styles.cameraOverlay}>
+                <View style={styles.cameraCard}>
+                    <Text style={styles.modalTitle}>EVIDENCE_CAPTURE</Text>
+                    {!permission?.granted ? (
+                        <View style={styles.cameraFallback}>
+                            <Text style={styles.warningText}>Camera access is required to verify the Gym protocol.</Text>
+                            <TouchableOpacity style={styles.cameraAction} onPress={requestPermission}>
+                                <Text style={styles.cameraActionText}>[ GRANT CAMERA ]</Text>
+                            </TouchableOpacity>
+                        </View>
+                    ) : (
+                        <>
+                            <CameraView ref={cameraRef} style={styles.cameraView} facing="back" />
+                            <View style={styles.cameraActions}>
+                                <TouchableOpacity style={styles.modalCancel} onPress={onCancel}>
+                                    <Text style={styles.modalCancelText}>[ CANCEL ]</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.cameraAction} onPress={takePicture} disabled={saving}>
+                                    <Text style={styles.cameraActionText}>{saving ? '[ SAVING... ]' : '[ CAPTURE ]'}</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </>
+                    )}
                 </View>
             </View>
         </Modal>
@@ -99,6 +214,8 @@ const HomeScreen = ({ navigation }) => {
     const [timezone, setTimezone] = useState(userInfo?.timezone || 'UTC');
     const [githubConnected, setGithubConnected] = useState(false);
     const [verificationGoal, setVerificationGoal] = useState(null);
+    const [verificationNote, setVerificationNote] = useState('');
+    const [showCamera, setShowCamera] = useState(false);
     const [verifying, setVerifying] = useState(false);
 
     const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -209,21 +326,40 @@ const HomeScreen = ({ navigation }) => {
         }
     };
 
-    const handleManualVerify = async (note) => {
+    const resetVerificationFlow = () => {
+        setVerificationGoal(null);
+        setVerificationNote('');
+        setShowCamera(false);
+    };
+
+    const submitManualVerification = async (link) => {
         if (!verificationGoal) return;
         setVerifying(true);
         try {
             await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-            await client.patch(`/api/goals/${verificationGoal.id}/verify`, { note }, {
+            await client.patch(`/api/goals/${verificationGoal.id}/verify`, {
+                note: verificationNote,
+                link,
+            }, {
                 headers: { Authorization: `Bearer ${userToken}` },
             });
-            setVerificationGoal(null);
+            resetVerificationFlow();
             await fetchProtocols();
         } catch (error) {
-            Alert.alert('VERIFY FAILED', 'The manual protocol could not be marked complete.');
+            Alert.alert('VERIFY FAILED', error.response?.data?.message || 'The manual protocol could not be marked complete.');
         } finally {
             setVerifying(false);
         }
+    };
+
+    const handleProceedVerification = async () => {
+        if (!verificationGoal) return;
+        const isGymProtocol = verificationGoal.title?.toLowerCase().includes('gym') || verificationGoal.protocolType === 'MANUAL' && verificationGoal.title?.toLowerCase().includes('gym');
+        if (isGymProtocol) {
+            setShowCamera(true);
+            return;
+        }
+        await submitManualVerification(undefined);
     };
 
     const handleSimulateFailure = async () => {
@@ -241,6 +377,7 @@ const HomeScreen = ({ navigation }) => {
     };
 
     const needsConfiguration = activeGoals.find((goal) => goal.requiresConfiguration);
+    const isGymVerification = Boolean(verificationGoal?.title?.toLowerCase().includes('gym'));
 
     if (loading) {
         return (
@@ -255,11 +392,20 @@ const HomeScreen = ({ navigation }) => {
 
     return (
         <SafeAreaView style={styles.container}>
-            <VerifyModal
+            <ConfirmModal
                 visible={Boolean(verificationGoal)}
                 goal={verificationGoal}
-                onCancel={() => setVerificationGoal(null)}
-                onConfirm={handleManualVerify}
+                note={verificationNote}
+                onNoteChange={setVerificationNote}
+                onCancel={resetVerificationFlow}
+                onProceed={handleProceedVerification}
+                saving={verifying}
+                requiresPhoto={isGymVerification}
+            />
+            <CameraEvidenceModal
+                visible={showCamera}
+                onCancel={() => setShowCamera(false)}
+                onCaptured={submitManualVerification}
                 saving={verifying}
             />
 
@@ -308,24 +454,37 @@ const HomeScreen = ({ navigation }) => {
                     </View>
                 ) : (
                     <>
-                        {activeGoals.map((goal) => (
-                            <GoalCard
-                                key={goal.id}
-                                goal={goal}
-                                color={getProtocolColor(goal)}
-                                progressLabel={`${goal.currentCount} / ${goal.targetValue} ${goal.protocolType === 'GITHUB' ? 'COMMITS' : goal.protocolType === 'LEETCODE' ? 'SOLVES' : 'SESSIONS'}`}
-                                footerLeft={`${goal.nextReminderAt} • ${goal.reminderLabel}`}
-                                footerRight={`${goal.dailyDeadline} • ${formatCountdown(goal.secondsRemaining)}`}
-                                actionLabel={goal.protocolType === 'MANUAL' && !goal.isCompleted ? 'VERIFY' : goal.isCompleted ? 'SECURED' : 'LIVE'}
-                                onPress={() => {
-                                    if (goal.protocolType === 'MANUAL' && !goal.isCompleted) {
-                                        setVerificationGoal(goal);
-                                    } else {
-                                        navigation.navigate('ProtocolConfig', { goal, protocolType: goal.protocolType });
-                                    }
-                                }}
-                            />
-                        ))}
+                        {activeGoals.map((goal) => {
+                            const isManualIncomplete = goal.protocolType === 'MANUAL' && !goal.isCompleted;
+                            return (
+                                <GoalCard
+                                    key={goal.id}
+                                    goal={goal}
+                                    color={getProtocolColor(goal)}
+                                    progressLabel={`${goal.currentCount} / ${goal.targetValue} ${goal.protocolType === 'GITHUB' ? 'COMMITS' : goal.protocolType === 'LEETCODE' ? 'SOLVES' : 'SESSIONS'}`}
+                                    footerLeft={`${goal.nextReminderAt} • ${goal.reminderLabel}`}
+                                    footerRight={`${goal.dailyDeadline} • ${formatCountdown(goal.secondsRemaining)}`}
+                                    actionSlot={isManualIncomplete ? (
+                                        <TouchableOpacity
+                                            style={styles.executeChip}
+                                            onPress={() => {
+                                                setVerificationGoal(goal);
+                                                setVerificationNote('');
+                                                setShowCamera(false);
+                                            }}
+                                        >
+                                            <Text style={styles.executeText}>EXECUTE</Text>
+                                        </TouchableOpacity>
+                                    ) : null}
+                                    actionLabel={!isManualIncomplete ? (goal.isCompleted ? 'SECURED' : 'LIVE') : undefined}
+                                    onPress={() => {
+                                        if (!isManualIncomplete) {
+                                            navigation.navigate('ProtocolConfig', { goal, protocolType: goal.protocolType });
+                                        }
+                                    }}
+                                />
+                            );
+                        })}
 
                         <TouchableOpacity style={styles.failureButton} onPress={handleSimulateFailure}>
                             <Text style={styles.failureButtonText}>[ TEST FAILURE PROTOCOL ]</Text>
@@ -495,6 +654,20 @@ const styles = StyleSheet.create({
         lineHeight: 16,
         marginTop: 18,
     },
+    executeChip: {
+        borderWidth: 1,
+        borderColor: '#FF9F0A',
+        borderRadius: 999,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        backgroundColor: 'rgba(255,159,10,0.08)',
+    },
+    executeText: {
+        color: '#FF9F0A',
+        fontFamily: MONO,
+        fontSize: 10,
+        fontWeight: '700',
+    },
     failureButton: {
         marginTop: 8,
         alignItems: 'center',
@@ -508,29 +681,44 @@ const styles = StyleSheet.create({
     },
     modalOverlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.72)',
+        backgroundColor: 'rgba(0,0,0,0.82)',
         justifyContent: 'center',
         padding: 20,
     },
     modalCard: {
-        backgroundColor: '#0D1621',
+        backgroundColor: '#0A1017',
         borderRadius: 22,
         borderWidth: 1,
-        borderColor: '#22324A',
+        borderColor: '#FF3B30',
         padding: 20,
     },
     modalTitle: {
-        color: '#F0F6FC',
+        color: '#FF3B30',
         fontFamily: MONO,
         fontSize: 16,
         fontWeight: '700',
+        letterSpacing: 1,
     },
     modalSubtitle: {
-        color: '#58A6FF',
+        color: '#F0F6FC',
         fontFamily: MONO,
-        fontSize: 11,
-        marginTop: 8,
-        marginBottom: 16,
+        fontSize: 13,
+        marginTop: 12,
+        lineHeight: 20,
+    },
+    warningText: {
+        color: '#FFB4A8',
+        fontFamily: MONO,
+        fontSize: 10,
+        lineHeight: 18,
+        marginTop: 10,
+    },
+    photoHint: {
+        color: '#FF9F0A',
+        fontFamily: MONO,
+        fontSize: 10,
+        lineHeight: 16,
+        marginTop: 10,
     },
     modalInput: {
         minHeight: 100,
@@ -543,26 +731,77 @@ const styles = StyleSheet.create({
         fontSize: 12,
         padding: 14,
         textAlignVertical: 'top',
+        marginTop: 16,
     },
     modalActions: {
         flexDirection: 'row',
         gap: 10,
-        marginTop: 16,
+        marginTop: 18,
     },
     modalCancel: {
         flex: 1,
         borderWidth: 1,
-        borderColor: '#2F3B4E',
+        borderColor: '#394150',
         borderRadius: 14,
         paddingVertical: 14,
         alignItems: 'center',
+        justifyContent: 'center',
     },
     modalCancelText: {
         color: '#8B949E',
         fontFamily: MONO,
         fontSize: 11,
     },
-    modalConfirm: {
+    holdButton: {
+        flex: 1,
+        minHeight: 48,
+        borderWidth: 1,
+        borderRadius: 14,
+        justifyContent: 'center',
+        alignItems: 'center',
+        overflow: 'hidden',
+        position: 'relative',
+        backgroundColor: 'rgba(0,255,65,0.06)',
+    },
+    holdFill: {
+        ...StyleSheet.absoluteFillObject,
+        width: '0%',
+        opacity: 0.18,
+    },
+    holdText: {
+        fontFamily: MONO,
+        fontSize: 11,
+        fontWeight: '700',
+        zIndex: 1,
+    },
+    cameraOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.9)',
+        justifyContent: 'center',
+        padding: 16,
+    },
+    cameraCard: {
+        backgroundColor: '#08111A',
+        borderRadius: 22,
+        borderWidth: 1,
+        borderColor: '#22324A',
+        padding: 16,
+    },
+    cameraFallback: {
+        paddingVertical: 24,
+    },
+    cameraView: {
+        height: 360,
+        borderRadius: 18,
+        overflow: 'hidden',
+        marginTop: 16,
+    },
+    cameraActions: {
+        flexDirection: 'row',
+        gap: 10,
+        marginTop: 14,
+    },
+    cameraAction: {
         flex: 1,
         borderWidth: 1,
         borderColor: '#00FF41',
@@ -571,7 +810,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         backgroundColor: 'rgba(0,255,65,0.1)',
     },
-    modalConfirmText: {
+    cameraActionText: {
         color: '#00FF41',
         fontFamily: MONO,
         fontSize: 11,

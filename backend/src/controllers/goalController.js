@@ -332,6 +332,11 @@ const verifyManualGoal = async (req, res) => {
             return res.status(404).json({ message: 'Manual protocol not found' });
         }
 
+        const requiresGymEvidence = goal.title?.toLowerCase().includes('gym');
+        if (requiresGymEvidence && !link?.trim()) {
+            return res.status(400).json({ message: 'Gym protocols require an evidence photo before verification.' });
+        }
+
         const verifiedGoal = await prisma.goal.update({
             where: { id: goal.id },
             data: {
