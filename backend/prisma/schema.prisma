@@ -85,7 +85,12 @@ model User {
     updatedAt   DateTime  @updatedAt
     lastLoginAt DateTime?
 
+    lastSyncedAt      DateTime?
+
     githubProfile     GithubProfile?
+    goals             Goal[]
+    consequences      Consequence[]
+    systemLogs        SystemLog[]
 }
 
 //////////////////////////////////////////////////////
@@ -103,6 +108,75 @@ model GithubProfile {
   lastSyncedAt    DateTime @default(now())
 
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+//////////////////////////////////////////////////////
+// ENUMS
+//////////////////////////////////////////////////////
+
+enum GoalType {
+  AUTOMATED
+  MANUAL
+}
+
+enum SourcePlatform {
+  GITHUB
+  LEETCODE
+  CODEFORCES
+  CUSTOM
+}
+
+//////////////////////////////////////////////////////
+// GOALS & CONSEQUENCES
+//////////////////////////////////////////////////////
+
+model Goal {
+  id              String         @id @default(uuid())
+  userId          String
+  title           String
+  type            GoalType
+  sourcePlatform  SourcePlatform
+  checkInterval   String         // e.g. "22:30"
+  targetCount     Int            @default(1)
+  currentCount    Int            @default(0)
+  isCompleted     Boolean        @default(false)
+  warningSchedule Json           // array of mins before deadline
+  streak          Int            @default(0)
+  lastSyncedAt    DateTime       @default(now())
+  
+  updatedAt       DateTime       @updatedAt
+  createdAt       DateTime       @default(now())
+
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  consequences    Consequence[]
+}
+
+model Consequence {
+  id         String   @id @default(uuid())
+  goalId     String
+  userId     String
+  type       String   @default("TERMINAL_FAILURE")
+  reason     String
+  issuedAt   DateTime @default(now())
+
+  goal       Goal     @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+//////////////////////////////////////////////////////
+// SYSTEM AUDIT LOG
+//////////////////////////////////////////////////////
+
+model SystemLog {
+  id        String   @id @default(cuid())
+  userId    String
+  level     String   // INFO, WARNING, CRITICAL, SUCCESS
+  message   String
+  timestamp DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, timestamp])
 }
 
 //////////////////////////////////////////////////////

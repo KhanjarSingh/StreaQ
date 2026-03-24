@@ -12,12 +12,14 @@
   "dependencies": {
     "@octokit/oauth-app": "^8.0.3",
     "@prisma/client": "^5.16.0",
+    "axios": "^1.13.6",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
+    "luxon": "^3.7.2",
     "prisma": "^5.16.0"
   },
   "devDependencies": {

@@ -11,8 +11,10 @@ import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import HomeScreen from '../screens/HomeScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import FailureGlitchScreen from '../screens/FailureGlitchScreen';
 
 const AuthStack = createNativeStackNavigator();
+const AppStack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 const AuthNavigator = () => (
@@ -54,6 +56,19 @@ const AppNavigator = () => (
     </Tab.Navigator>
 );
 
+// Wraps the Tab navigator + FailureGlitch overlay in a stack so the glitch
+// screen can be pushed full-screen without a tab bar.
+const AppRootNavigator = () => (
+    <AppStack.Navigator screenOptions={{ headerShown: false }}>
+        <AppStack.Screen name="MainTabs" component={AppNavigator} />
+        <AppStack.Screen
+            name="FailureGlitch"
+            component={FailureGlitchScreen}
+            options={{ animation: 'fade', gestureEnabled: false }}
+        />
+    </AppStack.Navigator>
+);
+
 const AppNav = () => {
     const { isLoading, userToken } = useContext(AuthContext);
 
@@ -67,7 +82,7 @@ const AppNav = () => {
 
     return (
         <NavigationContainer>
-            {userToken ? <AppNavigator /> : <AuthNavigator />}
+            {userToken ? <AppRootNavigator /> : <AuthNavigator />}
         </NavigationContainer>
     );
 };

@@ -1,86 +1,271 @@
-import React, { useContext } from 'react';
-import { View, StyleSheet, ScrollView, Platform } from 'react-native';
-import { Button, Text, Surface, IconButton, Avatar } from 'react-native-paper';
+import React, { useContext, useEffect, useState, useRef } from 'react';
+import {
+    View, StyleSheet, ScrollView, Platform, TouchableOpacity,
+    Modal, TextInput, KeyboardAvoidingView, Alert, Animated
+} from 'react-native';
+import { Text, Surface, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 import { AuthContext } from '../context/AuthContext';
+import client from '../api/client';
+import TerminalConsole from '../components/TerminalConsole';
 
-const HomeScreen = () => {
-    const { logout, userInfo } = useContext(AuthContext);
+const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 
-    const displayName = userInfo?.username || userInfo?.email?.split('@')[0] || 'User';
+// ─── Haptic escalation schedule ───────────────────────────────────────────────
+const isTimeNow = (hh, mm) => {
+    const now = new Date();
+    return now.getHours() === hh && now.getMinutes() === mm;
+};
 
-    const systemLogs = [
-        { id: 1, time: '10:42:01', action: 'System Init', status: 'SUCCESS' },
-        { id: 2, time: '10:42:05', action: 'Auth Token', status: 'VERIFIED' },
-        { id: 3, time: '10:43:12', action: 'Fetch Data', status: 'p.o.m.' },
-        { id: 4, time: '10:45:00', action: 'Sync Stream', status: 'WAITING' },
-    ];
+const runHapticSchedule = async () => {
+    if (isTimeNow(20, 0)) {
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } else if (isTimeNow(22, 0)) {
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+        await new Promise(r => setTimeout(r, 300));
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    } else if (isTimeNow(22, 30)) {
+        for (let i = 0; i < 4; i++) {
+            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+            await new Promise(r => setTimeout(r, 150));
+            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            await new Promise(r => setTimeout(r, 500));
+        }
+    }
+};
+
+// ─── EvidenceModal ─────────────────────────────────────────────────────────────
+const EvidenceModal = ({ visible, goalTitle, onConfirm, onCancel }) => {
+    const [note, setNote] = useState('');
+    const [link, setLink] = useState('');
+
+    const submit = () => {
+        if (!note.trim() && !link.trim()) {
+            Alert.alert('VALIDATION ERROR', 'Provide at least a session note or evidence link.');
+            return;
+        }
+        onConfirm({ note: note.trim(), link: link.trim() });
+        setNote('');
+        setLink('');
+    };
+
+    return (
+        <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+            <KeyboardAvoidingView
+                style={styles.modalOverlay}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            >
+                <View style={styles.modalBox}>
+                    <Text style={styles.modalTitle}>{'> MANUAL_VERIFY'}</Text>
+                    <Text style={styles.modalSub}>{goalTitle}</Text>
+
+                    <Text style={styles.modalLabel}>Session Note *</Text>
+                    <TextInput
+                        style={styles.modalInput}
+                        placeholder="Describe what you did..."
+                        placeholderTextColor="#444"
+                        value={note}
+                        onChangeText={setNote}
+                        multiline
+                        numberOfLines={3}
+                    />
+
+                    <Text style={styles.modalLabel}>Evidence Link (optional)</Text>
+                    <TextInput
+                        style={styles.modalInput}
+                        placeholder="Photo URL / GPS / Strava link..."
+                        placeholderTextColor="#444"
+                        value={link}
+                        onChangeText={setLink}
+                        autoCapitalize="none"
+                        keyboardType="url"
+                    />
+
+                    <View style={styles.modalBtns}>
+                        <TouchableOpacity style={styles.modalCancelBtn} onPress={onCancel}>
+                            <Text style={styles.modalCancelText}>[ ABORT ]</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.modalConfirmBtn} onPress={submit}>
+                            <Text style={styles.modalConfirmText}>[ CONFIRM ]</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </KeyboardAvoidingView>
+        </Modal>
+    );
+};
+
+// ─── HomeScreen ────────────────────────────────────────────────────────────────
+const HomeScreen = ({ navigation }) => {
+    const { userInfo, userToken } = useContext(AuthContext);
+    const displayName = userInfo?.username || userInfo?.email?.split('@')[0] || 'Operator';
+
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [goals, setGoals] = useState([
+        { id: 'g1', title: 'GitHub Commits', type: 'AUTOMATED', targetCount: 3, currentCount: 1, isCompleted: false },
+        { id: 'g2', title: 'LeetCode Daily', type: 'AUTOMATED', targetCount: 1, currentCount: 0, isCompleted: false },
+        { id: 'g3', title: 'Deep Work (4hrs)', type: 'MANUAL', targetCount: 1, currentCount: 1, isCompleted: true },
+        { id: 'g4', title: 'Gym (Hypertrophy)', type: 'MANUAL', targetCount: 1, currentCount: 0, isCompleted: false },
+    ]);
+    const [evidenceModal, setEvidenceModal] = useState({ visible: false, goalId: null, goalTitle: '' });
+
+    // ── Pulse animation (RN Animated — no JSI) ────────────────────────────────
+    const pulseAnim = useRef(new Animated.Value(1)).current;
+    useEffect(() => {
+        const loop = Animated.loop(
+            Animated.sequence([
+                Animated.timing(pulseAnim, { toValue: 0.4, duration: 800, useNativeDriver: true }),
+                Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+            ])
+        );
+        loop.start();
+        return () => loop.stop();
+    }, []);
+
+    // ── Haptic scheduler ──────────────────────────────────────────────────────
+    useEffect(() => {
+        runHapticSchedule();
+        const timer = setInterval(runHapticSchedule, 60 * 1000);
+        return () => clearInterval(timer);
+    }, []);
+
+    // ── Force Sync ─────────────────────────────────────────────────────────────
+    const handleSync = async () => {
+        if (isSyncing || !userInfo?.id) return;
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        setIsSyncing(true);
+        try {
+            const response = await client.post('/api/sync', { userId: userInfo.id });
+            if (response.data?.syncedGoals?.length) {
+                const synced = response.data.syncedGoals;
+                setGoals(prev => prev.map(g => {
+                    const updated = synced.find(s => s.id === g.id);
+                    return updated
+                        ? { ...g, currentCount: updated.currentCount, isCompleted: updated.isCompleted }
+                        : g;
+                }));
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            }
+        } catch {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
+    // ── Manual task (requires evidence) ──────────────────────────────────────
+    const onManualTaskPress = (goal) => {
+        if (goal.isCompleted) return;
+        setEvidenceModal({ visible: true, goalId: goal.id, goalTitle: goal.title });
+    };
+
+    const handleEvidenceConfirm = ({ note, link }) => {
+        const { goalId } = evidenceModal;
+        setEvidenceModal({ visible: false, goalId: null, goalTitle: '' });
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+        console.log(`[MANUAL_VERIFY] Goal ${goalId} — Note: "${note}" Link: "${link}"`);
+        setGoals(prev => prev.map(g =>
+            g.id === goalId ? { ...g, currentCount: g.targetCount, isCompleted: true } : g
+        ));
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    };
+
+    const activeStreak = goals.every(g => g.isCompleted) ? 'SECURED' : 'AT RISK';
+    const streakColor = activeStreak === 'SECURED' ? '#00FF41' : '#FF003C';
 
     return (
         <SafeAreaView style={styles.container}>
+            <EvidenceModal
+                visible={evidenceModal.visible}
+                goalTitle={evidenceModal.goalTitle}
+                onConfirm={handleEvidenceConfirm}
+                onCancel={() => setEvidenceModal({ visible: false, goalId: null, goalTitle: '' })}
+            />
+
+            {/* HEADER */}
             <View style={styles.header}>
                 <View>
-                    <Text variant="bodyMedium" style={styles.greeting}>// WELCOME_BACK</Text>
-                    <Text variant="headlineMedium" style={styles.username}>{displayName}</Text>
+                    <Text style={styles.greeting}>// TERMINAL_ACCESS_GRANTED</Text>
+                    <Text style={styles.username}>usr: {displayName}</Text>
                 </View>
-                <Surface style={styles.statusBadge} elevation={0}>
-                    <View style={styles.onlineDot} />
-                    <Text style={styles.statusText}>ONLINE</Text>
-                </Surface>
+                <Animated.View style={[styles.statusBadge, { opacity: pulseAnim }]}>
+                    <View style={[styles.onlineDot, { backgroundColor: isSyncing ? '#FFBD2E' : '#00FF41' }]} />
+                    <Text style={[styles.statusText, { color: isSyncing ? '#FFBD2E' : '#00FF41' }]}>
+                        {isSyncing ? 'SYNCING...' : 'ONLINE'}
+                    </Text>
+                </Animated.View>
             </View>
 
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
-                {/* Dashboard Widgets */}
-                <View style={styles.grid}>
-                    <Surface style={styles.card} elevation={0}>
-                        <View style={styles.cardHeader}>
-                            <IconButton icon="fire" iconColor="#FF7B72" size={20} style={styles.cardIcon} />
-                            <Text style={styles.cardTitle}>STREAK</Text>
-                        </View>
-                        <Text variant="displayMedium" style={styles.statValue}>0</Text>
-                        <Text style={styles.statLabel}>DAYS_ACTIVE</Text>
-                    </Surface>
-
-                    <Surface style={styles.card} elevation={0}>
-                        <View style={styles.cardHeader}>
-                            <IconButton icon="checkbox-marked-circle-outline" iconColor="#238636" size={20} style={styles.cardIcon} />
-                            <Text style={styles.cardTitle}>TASKS</Text>
-                        </View>
-                        <Text variant="displayMedium" style={styles.statValue}>5</Text>
-                        <Text style={styles.statLabel}>PENDING</Text>
-                    </Surface>
-                </View>
-
-                {/* Main Action Area */}
-                <Surface style={styles.actionCard} elevation={0}>
-                    <Text style={styles.actionTitle}>CURRENT_OBJECTIVE</Text>
-                    <Text style={styles.actionDesc}>No active coding session detected. Initialize a new session to maintain streak.</Text>
-                    <Button
-                        mode="contained"
-                        onPress={() => alert('Starting Session...')}
-                        style={styles.actionButton}
-                        contentStyle={{ height: 48 }}
-                        labelStyle={styles.actionButtonLabel}
-                        icon="console-line"
-                    >
-                        INIT_SESSION
-                    </Button>
+                {/* STREAK CARD */}
+                <Surface style={[styles.card, { borderColor: streakColor }]} elevation={0}>
+                    <View style={styles.cardHeader}>
+                        <IconButton icon="fire" iconColor={streakColor} size={24} style={styles.cardIcon} />
+                        <Text style={[styles.cardTitle, { color: streakColor }]}>GLOBAL STREAK STATUS</Text>
+                    </View>
+                    <Text style={[styles.statValue, { color: streakColor }]}>{activeStreak}</Text>
+                    <Text style={styles.statLabel}>DEADLINE: 22:30:00</Text>
+                    <TouchableOpacity onPress={() => navigation.navigate('FailureGlitch')} style={styles.devBtn}>
+                        <Text style={styles.devBtnText}>{'> [TEST] SIMULATE FAILURE'}</Text>
+                    </TouchableOpacity>
                 </Surface>
 
-                {/* System Logs */}
-                <View style={styles.logSection}>
-                    <Text style={styles.sectionTitle}>{'> SYSTEM_LOGS'}</Text>
-                    <View style={styles.terminalWindow}>
-                        {systemLogs.map((log) => (
-                            <Text key={log.id} style={styles.logLine}>
-                                <Text style={styles.logTime}>[{log.time}]</Text>
-                                <Text style={styles.logAction}> {log.action}</Text>
-                                <Text style={styles.logStatus}>...{log.status}</Text>
+                {/* TARGETS */}
+                <View style={styles.sectionHeaderRow}>
+                    <Text style={styles.sectionTitle}>{'> TARGETS'}</Text>
+                    <TouchableOpacity onPress={handleSync}>
+                        <Text style={styles.syncBtnText}>[ FORCE_SYNC ]</Text>
+                    </TouchableOpacity>
+                </View>
+
+                {goals.filter(g => g.type === 'AUTOMATED').map(goal => (
+                    <View key={goal.id} style={styles.goalRow}>
+                        <View style={styles.goalInfo}>
+                            <Text style={styles.goalTitle}>{goal.title}</Text>
+                            <Text style={styles.goalSub}>[AUTOMATED_WATCHER]</Text>
+                        </View>
+                        <View style={styles.goalProgress}>
+                            <Text style={[styles.progressText, { color: goal.isCompleted ? '#00FF41' : '#FFBD2E' }]}>
+                                {goal.currentCount}/{goal.targetCount}
                             </Text>
-                        ))}
-                        <Text style={styles.cursor}>_</Text>
+                            <View style={[styles.indicatorLine, { backgroundColor: goal.isCompleted ? '#00FF41' : '#FF003C' }]} />
+                        </View>
                     </View>
+                ))}
+
+                {/* MANUAL OVERRIDES */}
+                <Text style={[styles.sectionTitle, { marginTop: 24 }]}>{'> MANUAL_OVERRIDES'}</Text>
+                {goals.filter(g => g.type === 'MANUAL').map(goal => (
+                    <TouchableOpacity
+                        key={goal.id}
+                        style={[styles.goalRow, goal.isCompleted && styles.goalRowCompleted]}
+                        onPress={() => onManualTaskPress(goal)}
+                        disabled={goal.isCompleted}
+                    >
+                        <View style={styles.goalInfo}>
+                            <Text style={styles.goalTitle}>{goal.title}</Text>
+                            <Text style={styles.goalSub}>
+                                {goal.isCompleted ? '[VERIFIED — SESSION LOGGED]' : '[REQUIRES EVIDENCE]'}
+                            </Text>
+                        </View>
+                        <View style={styles.toggleContainer}>
+                            {goal.isCompleted ? (
+                                <Text style={[styles.progressText, { color: '#00FF41' }]}>VERIFIED</Text>
+                            ) : (
+                                <View style={styles.actionSwitch}>
+                                    <Text style={styles.switchText}>EXECUTE</Text>
+                                </View>
+                            )}
+                        </View>
+                    </TouchableOpacity>
+                ))}
+
+                {/* SYSTEM LOGS */}
+                <View style={{ marginTop: 32, marginBottom: 32 }}>
+                    <Text style={styles.sectionTitle}>{'> SYSTEM_LOGS'}</Text>
+                    <TerminalConsole userId={userInfo?.id} token={userToken} pollIntervalMs={10000} />
                 </View>
 
             </ScrollView>
@@ -89,152 +274,78 @@ const HomeScreen = () => {
 };
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#0D1117',
-    },
-    scrollContent: {
-        padding: 20,
-    },
+    container: { flex: 1, backgroundColor: '#050505' },
+    scrollContent: { padding: 20 },
     header: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingHorizontal: 20,
-        marginBottom: 24,
+        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+        paddingHorizontal: 20, marginBottom: 24,
     },
-    greeting: {
-        color: '#8B949E',
-        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-        marginBottom: 4,
-    },
-    username: {
-        color: '#C9D1D9',
-        fontWeight: 'bold',
-        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    },
+    greeting: { color: '#444', fontFamily: MONO, fontSize: 10, marginBottom: 4 },
+    username: { color: '#E0E0E0', fontWeight: 'bold', fontSize: 18, fontFamily: MONO },
     statusBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#161B22',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: '#30363D',
+        flexDirection: 'row', alignItems: 'center',
+        backgroundColor: '#111', paddingHorizontal: 12, paddingVertical: 6,
+        borderWidth: 1, borderColor: '#333',
     },
-    onlineDot: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        backgroundColor: '#238636',
-        marginRight: 8,
-    },
-    statusText: {
-        color: '#238636',
-        fontSize: 10,
-        fontWeight: 'bold',
-        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    },
-    grid: {
-        flexDirection: 'row',
-        gap: 16,
-        marginBottom: 24,
-    },
+    onlineDot: { width: 8, height: 8, marginRight: 8 },
+    statusText: { color: '#00FF41', fontSize: 10, fontWeight: 'bold', fontFamily: MONO },
     card: {
-        flex: 1,
-        backgroundColor: '#161B22',
-        padding: 16,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#30363D',
+        backgroundColor: '#0A0A0A', padding: 20,
+        borderWidth: 1, borderColor: '#333', marginBottom: 24,
     },
-    cardHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 8,
+    cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+    cardIcon: { margin: 0, marginRight: -4 },
+    cardTitle: { color: '#E0E0E0', fontSize: 12, fontWeight: '900', fontFamily: MONO, letterSpacing: 2 },
+    statValue: { color: '#E0E0E0', fontWeight: '900', fontSize: 32, fontFamily: MONO, letterSpacing: 2 },
+    statLabel: { color: '#8B949E', fontSize: 10, marginTop: 4, fontFamily: MONO },
+    devBtn: { marginTop: 12 },
+    devBtnText: { color: '#FF003C', fontFamily: MONO, fontSize: 9, opacity: 0.6 },
+    sectionHeaderRow: {
+        flexDirection: 'row', justifyContent: 'space-between',
+        alignItems: 'flex-end', marginBottom: 16,
     },
-    cardIcon: {
-        margin: 0,
-        marginRight: 4,
+    sectionTitle: { color: '#00FF41', fontFamily: MONO, fontWeight: 'bold', fontSize: 14, letterSpacing: 1 },
+    syncBtnText: { color: '#58A6FF', fontFamily: MONO, fontSize: 10, fontWeight: 'bold' },
+    goalRow: {
+        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+        backgroundColor: '#111', borderWidth: 1, borderColor: '#222',
+        padding: 16, marginBottom: 12,
     },
-    cardTitle: {
-        color: '#8B949E',
-        fontSize: 12,
-        fontWeight: 'bold',
-        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    goalRowCompleted: { borderColor: '#00FF41', opacity: 0.8 },
+    goalInfo: { flex: 1 },
+    goalTitle: { color: '#E0E0E0', fontFamily: MONO, fontWeight: 'bold', fontSize: 14 },
+    goalSub: { color: '#666', fontFamily: MONO, fontSize: 10, marginTop: 4 },
+    goalProgress: { alignItems: 'flex-end' },
+    progressText: { fontFamily: MONO, fontWeight: 'bold', fontSize: 18 },
+    indicatorLine: { width: 30, height: 2, marginTop: 4 },
+    toggleContainer: { alignItems: 'flex-end' },
+    actionSwitch: {
+        borderWidth: 1, borderColor: '#FF003C',
+        paddingVertical: 6, paddingHorizontal: 12,
+        backgroundColor: 'rgba(255, 0, 60, 0.1)',
     },
-    statValue: {
-        color: '#C9D1D9',
-        fontWeight: 'bold',
-        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    switchText: { color: '#FF003C', fontFamily: MONO, fontSize: 10, fontWeight: 'bold' },
+    modalOverlay: {
+        flex: 1, backgroundColor: 'rgba(0,0,0,0.85)',
+        justifyContent: 'center', padding: 20,
     },
-    statLabel: {
-        color: '#8B949E',
-        fontSize: 10,
-        marginTop: 4,
-        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    modalBox: { backgroundColor: '#0A0A0A', borderWidth: 1, borderColor: '#333', padding: 24 },
+    modalTitle: { color: '#00FF41', fontFamily: MONO, fontWeight: 'bold', fontSize: 16, marginBottom: 4 },
+    modalSub: { color: '#666', fontFamily: MONO, fontSize: 11, marginBottom: 20 },
+    modalLabel: { color: '#8B949E', fontFamily: MONO, fontSize: 10, marginBottom: 6 },
+    modalInput: {
+        backgroundColor: '#111', borderWidth: 1, borderColor: '#333',
+        color: '#E0E0E0', fontFamily: MONO, fontSize: 12,
+        padding: 12, marginBottom: 16,
     },
-    actionCard: {
-        backgroundColor: '#161B22',
-        padding: 20,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#30363D',
-        marginBottom: 24,
+    modalBtns: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
+    modalCancelBtn: { flex: 1, borderWidth: 1, borderColor: '#333', padding: 12, alignItems: 'center' },
+    modalCancelText: { color: '#666', fontFamily: MONO, fontSize: 11 },
+    modalConfirmBtn: {
+        flex: 1, borderWidth: 1, borderColor: '#00FF41',
+        backgroundColor: 'rgba(0,255,65,0.1)', padding: 12, alignItems: 'center',
     },
-    actionTitle: {
-        color: '#58A6FF',
-        fontSize: 14,
-        fontWeight: 'bold',
-        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-        marginBottom: 8,
-    },
-    actionDesc: {
-        color: '#8B949E',
-        fontSize: 14,
-        marginBottom: 20,
-        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    },
-    actionButton: {
-        backgroundColor: '#238636',
-        borderRadius: 6,
-    },
-    actionButtonLabel: {
-        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-        fontSize: 14,
-        fontWeight: 'bold',
-        color: '#FFFFFF',
-    },
-    logSection: {
-        gap: 12,
-    },
-    sectionTitle: {
-        color: '#C9D1D9',
-        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-        fontWeight: 'bold',
-        fontSize: 16,
-    },
-    terminalWindow: {
-        backgroundColor: '#000000',
-        padding: 16,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#30363D',
-    },
-    logLine: {
-        color: '#C9D1D9',
-        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-        fontSize: 12,
-        marginBottom: 4,
-    },
-    logTime: { color: '#8B949E' },
-    logAction: { color: '#E1E4E8' },
-    logStatus: { color: '#238636' },
-    cursor: {
-        color: '#58A6FF',
-        fontWeight: 'bold',
-    },
+    modalConfirmText: { color: '#00FF41', fontFamily: MONO, fontSize: 11, fontWeight: 'bold' },
 });
 
 export default HomeScreen;

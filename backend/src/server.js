@@ -4,6 +4,7 @@ const cors = require('cors');
 require('dotenv').config();
 const prisma = require('./config/db');
 const router = require('./routes/routes');
+const { startCronJobs } = require('./services/cron.service');
 const PORT = process.env.PORT || 3000;
 
 const app = express();
@@ -32,7 +33,7 @@ async function startServer() {
         await prisma.$connect();
         console.log('Database connected !!!');
 
-
+        startCronJobs();
         app.listen(PORT, () => {
             console.log(`Server running on port http://localhost:${PORT}`);
         });
