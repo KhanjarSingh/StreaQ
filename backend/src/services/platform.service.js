@@ -3,6 +3,24 @@ const { PrismaClient } = require('@prisma/client');
 const { writeSystemLog } = require('./cron.service');
 const prisma = new PrismaClient();
 
+const isMissingColumnError = (error) => error?.code === 'P2022';
+
+const safePrismaCall = async (label, operation, fallbackValue) => {
+    try {
+        return await operation();
+    } catch (error) {
+        if (isMissingColumnError(error)) {
+            console.error(`[PRISMA_SCHEMA_MISMATCH] ${label}`, {
+                code: error.code,
+                message: error.message,
+                meta: error.meta,
+            });
+            return fallbackValue;
+        }
+        throw error;
+    }
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GITHUB  – today's contribution count via GraphQL
 // ─────────────────────────────────────────────────────────────────────────────
@@ -120,14 +138,22 @@ const getCodeforcesSubmissions = async (username) => {
 const syncAutomatedGoals = async (userId) => {
     if (!userId) return [];
 
-    const goals = await prisma.goal.findMany({
-        where: { userId, type: 'AUTOMATED' }
-    });
+    const goals = await safePrismaCall(
+        `goal.findMany for user ${userId}`,
+        () => prisma.goal.findMany({
+            where: { userId, type: 'AUTOMATED' }
+        }),
+        []
+    );
 
-    const user = await prisma.user.findUnique({
-        where: { id: userId },
-        include: { githubProfile: true }
-    });
+    const user = await safePrismaCall(
+        `user.findUnique for sync user ${userId}`,
+        () => prisma.user.findUnique({
+            where: { id: userId },
+            include: { githubProfile: true }
+        }),
+        null
+    );
 
     if (!user) return [];
 
@@ -154,21 +180,34 @@ const syncAutomatedGoals = async (userId) => {
         console.log(msg);
         await writeSystemLog(userId, level, msg);
 
-        return prisma.goal.update({
-            where: { id: goal.id },
-            data: {
+        return safePrismaCall(
+            `goal.update for goal ${goal.id}`,
+            () => prisma.goal.update({
+                where: { id: goal.id },
+                data: {
+                    currentCount: count,
+                    isCompleted,
+                    lastSyncedAt: new Date()
+                }
+            }),
+            {
+                ...goal,
                 currentCount: count,
                 isCompleted,
-                lastSyncedAt: new Date()
+                lastSyncedAt: goal.lastSyncedAt || null,
             }
-        });
+        );
     }));
 
     // Update user.lastSyncedAt
-    await prisma.user.update({
-        where: { id: userId },
-        data: { lastSyncedAt: new Date() }
-    });
+    await safePrismaCall(
+        `user.update lastSyncedAt for user ${userId}`,
+        () => prisma.user.update({
+            where: { id: userId },
+            data: { lastSyncedAt: new Date() }
+        }),
+        null
+    );
 
     return results;
 };

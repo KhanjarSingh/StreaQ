@@ -160,12 +160,20 @@ const ProfileScreen = ({ navigation }) => {
             setTimezone(res.data?.user?.timezone || 'UTC');
             setError(null);
         } catch (e) {
+            if (e.response?.status === 401) {
+                setError(null);
+                setProfile(null);
+                setLoading(false);
+                setRefreshing(false);
+                await logout();
+                return;
+            }
             setError(e.message || 'Connection failed');
         } finally {
             setLoading(false);
             setRefreshing(false);
         }
-    }, [userToken]);
+    }, [logout, userToken]);
 
     useEffect(() => { fetchProfile(); }, [fetchProfile]);
 

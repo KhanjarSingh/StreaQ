@@ -6,11 +6,22 @@ import {
 import { Text, Surface, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
+import * as ImagePicker from 'expo-image-picker';
 import { AuthContext } from '../context/AuthContext';
 import client from '../api/client';
 import TerminalConsole from '../components/TerminalConsole';
 
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
+
+Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+    }),
+});
 
 // ─── Haptic escalation schedule ───────────────────────────────────────────────
 const isTimeNow = (hh, mm) => {
@@ -40,7 +51,13 @@ const EvidenceModal = ({ visible, goalTitle, onConfirm, onCancel }) => {
     const [note, setNote] = useState('');
     const [link, setLink] = useState('');
 
+    const isGym = goalTitle.toLowerCase().includes('gym');
+
     const submit = () => {
+        if (isGym && !link.trim()) {
+            Alert.alert('VALIDATION ERROR', 'Gym tasks REQUIRE photo evidence.');
+            return;
+        }
         if (!note.trim() && !link.trim()) {
             Alert.alert('VALIDATION ERROR', 'Provide at least a session note or evidence link.');
             return;
@@ -48,6 +65,17 @@ const EvidenceModal = ({ visible, goalTitle, onConfirm, onCancel }) => {
         onConfirm({ note: note.trim(), link: link.trim() });
         setNote('');
         setLink('');
+    };
+
+    const pickImage = async () => {
+        let result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            quality: 0.5,
+        });
+        if (!result.canceled) {
+            setLink(result.assets[0].uri);
+        }
     };
 
     return (
@@ -71,16 +99,21 @@ const EvidenceModal = ({ visible, goalTitle, onConfirm, onCancel }) => {
                         numberOfLines={3}
                     />
 
-                    <Text style={styles.modalLabel}>Evidence Link (optional)</Text>
-                    <TextInput
-                        style={styles.modalInput}
-                        placeholder="Photo URL / GPS / Strava link..."
-                        placeholderTextColor="#444"
-                        value={link}
-                        onChangeText={setLink}
-                        autoCapitalize="none"
-                        keyboardType="url"
-                    />
+                    <Text style={styles.modalLabel}>Evidence Link / Photo {isGym ? '*' : '(optional)'}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <TextInput
+                            style={[styles.modalInput, { flex: 1, marginBottom: 0 }]}
+                            placeholder="Photo URL / GPS / Strava link..."
+                            placeholderTextColor="#444"
+                            value={link}
+                            onChangeText={setLink}
+                            autoCapitalize="none"
+                        />
+                        <TouchableOpacity style={styles.uploadBtn} onPress={pickImage}>
+                            <Text style={styles.uploadBtnText}>[+]</Text>
+                        </TouchableOpacity>
+                    </View>
+                    <View style={{ marginBottom: 16 }} />
 
                     <View style={styles.modalBtns}>
                         <TouchableOpacity style={styles.modalCancelBtn} onPress={onCancel}>
@@ -129,6 +162,64 @@ const HomeScreen = ({ navigation }) => {
         const timer = setInterval(runHapticSchedule, 60 * 1000);
         return () => clearInterval(timer);
     }, []);
+
+    // ── Push Notifications ──────────────────────────────────────────────────────
+    useEffect(() => {
+        if (!userInfo?.id) return;
+
+        registerForPushNotificationsAsync().then(token => {
+            if (token) {
+                client.patch('/api/users/push-token', { token }).catch(console.error);
+            }
+        });
+
+        const notificationListener = Notifications.addNotificationReceivedListener(notification => {
+            const data = notification.request.content.data;
+            if (data?.type === 'CRITICAL') {
+                navigation.navigate('FailureGlitch');
+            }
+        });
+
+        const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
+            const data = response.notification.request.content.data;
+            if (data?.type === 'CRITICAL') {
+                navigation.navigate('FailureGlitch');
+            }
+        });
+
+        return () => {
+            Notifications.removeNotificationSubscription(notificationListener);
+            Notifications.removeNotificationSubscription(responseListener);
+        };
+    }, [userInfo?.id]);
+
+    async function registerForPushNotificationsAsync() {
+        let token;
+        if (Device.isDevice) {
+            const { status: existingStatus } = await Notifications.getPermissionsAsync();
+            let finalStatus = existingStatus;
+            if (existingStatus !== 'granted') {
+                const { status } = await Notifications.requestPermissionsAsync();
+                finalStatus = status;
+            }
+            if (finalStatus !== 'granted') return null;
+            token = (await Notifications.getExpoPushTokenAsync({
+                projectId: 'your-expo-project-id' // Optional depending on init
+            })).data;
+        } else {
+            console.warn('[PUSH] Must use physical device for Push Notifications');
+        }
+
+        if (Platform.OS === 'android') {
+            await Notifications.setNotificationChannelAsync('default', {
+                name: 'default',
+                importance: Notifications.AndroidImportance.MAX,
+                vibrationPattern: [0, 250, 250, 250],
+                lightColor: '#FF231F7C',
+            });
+        }
+        return token;
+    }
 
     // ── Force Sync ─────────────────────────────────────────────────────────────
     const handleSync = async () => {
@@ -197,7 +288,9 @@ const HomeScreen = ({ navigation }) => {
                 </Animated.View>
             </View>
 
-            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            {/* Remove ScrollView and use a FlatList or a regular View inside SafeArea if it is mostly static/nested flatlists */}
+            <View style={{flex: 1}}>
+                <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
                 {/* STREAK CARD */}
                 <Surface style={[styles.card, { borderColor: streakColor }]} elevation={0}>
@@ -265,10 +358,14 @@ const HomeScreen = ({ navigation }) => {
                 {/* SYSTEM LOGS */}
                 <View style={{ marginTop: 32, marginBottom: 32 }}>
                     <Text style={styles.sectionTitle}>{'> SYSTEM_LOGS'}</Text>
-                    <TerminalConsole userId={userInfo?.id} token={userToken} pollIntervalMs={10000} />
+                    {/* Replaced TerminalConsole internal ScrollView with fixed height / FlatList in TerminalConsole config */}
+                    <View style={{height: 250}}>
+                        <TerminalConsole userId={userInfo?.id} token={userToken} pollIntervalMs={10000} />
+                    </View>
                 </View>
 
             </ScrollView>
+            </View>
         </SafeAreaView>
     );
 };
@@ -346,6 +443,11 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(0,255,65,0.1)', padding: 12, alignItems: 'center',
     },
     modalConfirmText: { color: '#00FF41', fontFamily: MONO, fontSize: 11, fontWeight: 'bold' },
+    uploadBtn: {
+        marginLeft: 8, padding: 12, borderWidth: 1, borderColor: '#333',
+        backgroundColor: '#111', alignItems: 'center', justifyContent: 'center'
+    },
+    uploadBtnText: { color: '#444', fontFamily: MONO, fontWeight: 'bold' }
 });
 
 export default HomeScreen;
