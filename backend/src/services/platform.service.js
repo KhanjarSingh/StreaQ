@@ -22,8 +22,6 @@ const safePrismaCall = async (label, operation, fallbackValue) => {
     }
 };
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const getIstDayBounds = () => {
     const nowIst = DateTime.now().setZone(IST_TIMEZONE);
     return {
@@ -96,70 +94,26 @@ const verifyLeetCodeDaily = async (username) => {
     if (!username) return 0;
 
     try {
-        const encodedUsername = encodeURIComponent(username);
-        const endpoint = `https://alfa-leetcode-api.onrender.com/${encodedUsername}/acSubmission`;
-        const maxAttempts = 2;
-        let response;
-        let lastError;
-
-        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-            try {
-                response = await axios.get(endpoint, {
-                    timeout: 15000,
-                    validateStatus: () => true,
-                });
-
-                console.log('[LEETCODE_DEBUG] response', {
+        const response = await axios.post(
+            'https://leetcode.com/graphql',
+            {
+                query: 'query recentAcSubmissions($username: String!, $limit: Int!) { recentAcSubmissionList(username: $username, limit: $limit) { id title titleSlug timestamp } }',
+                variables: {
                     username,
-                    attempt,
-                    status: response.status,
-                    isArray: Array.isArray(response.data),
-                    dataType: typeof response.data,
-                    keys: response.data && typeof response.data === 'object' && !Array.isArray(response.data)
-                        ? Object.keys(response.data)
-                        : [],
-                    sample: Array.isArray(response.data)
-                        ? response.data.slice(0, 2)
-                        : response.data,
-                });
-
-                if (response.status >= 200 && response.status < 300) {
-                    break;
-                }
-
-                if (response.status === 404) {
-                    console.warn('[LEETCODE_DEBUG] user not found', { username, status: response.status });
-                    return 0;
-                }
-
-                lastError = new Error(`Unexpected status ${response.status}`);
-            } catch (error) {
-                lastError = error;
-                console.warn('[LEETCODE_DEBUG] request failed', {
-                    username,
-                    attempt,
-                    message: error.message,
-                    code: error.code,
-                });
+                    limit: 20,
+                },
+            },
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                timeout: 15000,
             }
+        );
 
-            if (attempt < maxAttempts) {
-                await sleep(1500);
-            }
-        }
-
-        if (!response || response.status < 200 || response.status >= 300) {
-            throw lastError || new Error('LeetCode API unavailable');
-        }
-
-        const submissions = Array.isArray(response.data)
-            ? response.data
-            : Array.isArray(response.data?.submission)
-                ? response.data.submission
-                : Array.isArray(response.data?.submissions)
-                    ? response.data.submissions
-                    : [];
-
+        const submissions = Array.isArray(response.data?.data?.recentAcSubmissionList)
+            ? response.data.data.recentAcSubmissionList
+            : [];
         const nowIst = DateTime.now().setZone(IST_TIMEZONE);
         const startOfDayISTUnixMs = nowIst.startOf('day').toUTC().toMillis();
         const endOfDayISTUnixMs = nowIst.endOf('day').toUTC().toMillis();
@@ -179,14 +133,6 @@ const verifyLeetCodeDaily = async (username) => {
             if (typeof slug === 'string' && slug.trim()) {
                 solvedToday.add(slug.trim());
             }
-        });
-
-        console.log('[LEETCODE_DEBUG] filtered submissions', {
-            username,
-            totalFetched: submissions.length,
-            uniqueSolvedToday: solvedToday.size,
-            startOfDayISTUnixMs,
-            endOfDayISTUnixMs,
         });
 
         return solvedToday.size;
