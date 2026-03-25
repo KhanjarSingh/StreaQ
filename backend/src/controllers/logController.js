@@ -1,5 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../config/db');
 
 // GET /api/logs/:userId?limit=50
 const getUserLogs = async (req, res) => {

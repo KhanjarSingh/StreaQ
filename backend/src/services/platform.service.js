@@ -1,8 +1,7 @@
 const axios = require('axios');
-const { PrismaClient } = require('@prisma/client');
-const { writeSystemLog } = require('./cron.service');
+const prisma = require('../config/db');
+const { writeSystemLogs } = require('./cron.service');
 const { DateTime } = require('luxon');
-const prisma = new PrismaClient();
 const IST_TIMEZONE = 'Asia/Kolkata';
 
 const isMissingColumnError = (error) => error?.code === 'P2022';
@@ -183,7 +182,10 @@ const syncAutomatedGoals = async (userId) => {
 
     if (!user) return [];
 
-    const results = await Promise.all(goals.map(async (goal) => {
+    const results = [];
+    const logEntries = [];
+
+    for (const goal of goals) {
         let count = 0;
         let platform = goal.sourcePlatform;
 
@@ -204,9 +206,9 @@ const syncAutomatedGoals = async (userId) => {
             : `[INFO] ${platform}_SYNC: ${count}/${goal.targetCount} "${goal.title}". Goal not yet met.`;
 
         console.log(msg);
-        await writeSystemLog(userId, level, msg);
+        logEntries.push({ userId, level, message: msg });
 
-        return safePrismaCall(
+        const updatedGoal = await safePrismaCall(
             `goal.update for goal ${goal.id}`,
             () => prisma.goal.update({
                 where: { id: goal.id },
@@ -223,7 +225,10 @@ const syncAutomatedGoals = async (userId) => {
                 lastSyncedAt: goal.lastSyncedAt || null,
             }
         );
-    }));
+        results.push(updatedGoal);
+    }
+
+    await writeSystemLogs(logEntries);
 
     // Update user.lastSyncedAt
     await safePrismaCall(

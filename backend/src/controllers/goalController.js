@@ -202,19 +202,18 @@ const serializeGoal = (goal) => {
 
 const getGoals = async (req, res) => {
     try {
-        const [user, goals] = await Promise.all([
-            prisma.user.findUnique({
-                where: { id: req.user.id },
-                select: { timezone: true, githubProfile: { select: { id: true, login: true } } },
-            }),
-            prisma.goal.findMany({
-                where: { userId: req.user.id },
-                orderBy: [
-                    { isActive: 'desc' },
-                    { createdAt: 'asc' },
-                ],
-            }),
-        ]);
+        const user = await prisma.user.findUnique({
+            where: { id: req.user.id },
+            select: { timezone: true, githubProfile: { select: { id: true, login: true } } },
+        });
+
+        const goals = await prisma.goal.findMany({
+            where: { userId: req.user.id },
+            orderBy: [
+                { isActive: 'desc' },
+                { createdAt: 'asc' },
+            ],
+        });
 
         const serializedGoals = goals.map(serializeGoal);
         const activeGoals = serializedGoals.filter((goal) => goal.isActive);

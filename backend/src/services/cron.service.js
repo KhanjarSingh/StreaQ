@@ -1,7 +1,6 @@
-const { PrismaClient } = require('@prisma/client');
 const { DateTime } = require('luxon');
 const { sendWarningNotification, sendCriticalNotification } = require('./notification.service');
-const prisma = new PrismaClient();
+const prisma = require('../config/db');
 const IST_TIMEZONE = 'Asia/Kolkata';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -9,8 +8,14 @@ const IST_TIMEZONE = 'Asia/Kolkata';
 // ─────────────────────────────────────────────────────────────────────────────
 
 const writeSystemLog = async (userId, level, message) => {
+    return writeSystemLogs([{ userId, level, message }]);
+};
+
+const writeSystemLogs = async (entries = []) => {
+    if (!Array.isArray(entries) || entries.length === 0) return;
+
     try {
-        await prisma.systemLog.create({ data: { userId, level, message } });
+        await prisma.systemLog.createMany({ data: entries });
     } catch (e) {
         console.error('[SYSLOG_WRITE_ERROR]', e.message);
     }
@@ -152,4 +157,4 @@ const startCronJobs = () => {
     }, msUntilNextMinute);
 };
 
-module.exports = { startCronJobs, writeSystemLog };
+module.exports = { startCronJobs, writeSystemLog, writeSystemLogs };
