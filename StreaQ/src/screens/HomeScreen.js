@@ -219,7 +219,13 @@ const HomeScreen = ({ navigation }) => {
     const [verifying, setVerifying] = useState(false);
     const [failureCountdown, setFailureCountdown] = useState(null);
     const failureTimerRef = useRef(null);
-    const hasLoadedOnceRef = useRef(false);
+    const authRef = useRef({
+        userId: userInfo?.id || null,
+        userToken: userToken || null,
+        timezone: userInfo?.timezone || 'UTC',
+        logout,
+    });
+    const syncingRef = useRef(false);
 
     const pulseAnim = useRef(new Animated.Value(1)).current;
     useEffect(() => {
@@ -233,27 +239,53 @@ const HomeScreen = ({ navigation }) => {
         return () => loop.stop();
     }, []);
 
-    const fetchProtocols = useCallback(async () => {
-        if (!userToken) return;
+    useEffect(() => {
+        authRef.current = {
+            userId: userInfo?.id || null,
+            userToken: userToken || null,
+            timezone: userInfo?.timezone || 'UTC',
+            logout,
+        };
+    }, [logout, userInfo?.id, userInfo?.timezone, userToken]);
+
+    const fetchProtocols = useCallback(async ({ isActive = () => true, withLoading = false } = {}) => {
+        const { userToken: currentToken, timezone: currentTimezone, logout: currentLogout } = authRef.current;
+
+        if (withLoading && isActive()) {
+            setLoading(true);
+        }
+
+        if (!currentToken) {
+            if (isActive()) {
+                setLoading(false);
+            }
+            return;
+        }
 
         try {
             const response = await client.get('/api/goals', {
-                headers: { Authorization: `Bearer ${userToken}` },
+                headers: { Authorization: `Bearer ${currentToken}` },
             });
 
+            if (!isActive()) return;
+
             setActiveGoals(response.data?.activeGoals || []);
-            setTimezone(response.data?.timezone || userInfo?.timezone || 'UTC');
+            setTimezone(response.data?.timezone || currentTimezone || 'UTC');
             setGithubConnected(Boolean(response.data?.githubConnected));
         } catch (error) {
             if (error.response?.status === 401) {
-                await logout();
+                await currentLogout();
                 return;
             }
-            Alert.alert('PROTOCOL FEED LOST', 'Unable to fetch your active protocols right now.');
+            if (isActive()) {
+                Alert.alert('PROTOCOL FEED LOST', 'Unable to fetch your active protocols right now.');
+            }
         } finally {
-            setLoading(false);
+            if (isActive()) {
+                setLoading(false);
+            }
         }
-    }, [logout, userInfo?.timezone, userToken]);
+    }, []);
 
     useEffect(() => {
         if (!Device.isDevice) {
@@ -307,39 +339,48 @@ const HomeScreen = ({ navigation }) => {
         };
     }, [navigation, userToken]);
 
-    const handleSync = useCallback(async () => {
-        if (!userInfo?.id || syncing) return;
+    const handleSync = useCallback(async ({ isActive = () => true } = {}) => {
+        const { userId: currentUserId, userToken: currentToken } = authRef.current;
+        if (!currentUserId || !currentToken || syncingRef.current) return;
+
+        syncingRef.current = true;
         setSyncing(true);
+
         try {
-            await client.post('/api/sync', { userId: userInfo.id }, {
-                headers: { Authorization: `Bearer ${userToken}` },
+            await client.post('/api/sync', { userId: currentUserId }, {
+                headers: { Authorization: `Bearer ${currentToken}` },
             });
-            await fetchProtocols();
+            await fetchProtocols({ isActive });
         } catch (error) {
-            Alert.alert('SYNC FAILED', 'The operator HUD could not refresh protocol progress.');
+            if (isActive()) {
+                Alert.alert('SYNC FAILED', 'The operator HUD could not refresh protocol progress.');
+            }
         } finally {
-            setSyncing(false);
+            syncingRef.current = false;
+            if (isActive()) {
+                setSyncing(false);
+            }
         }
-    }, [fetchProtocols, syncing, userInfo?.id, userToken]);
+    }, [fetchProtocols]);
 
     useFocusEffect(
         useCallback(() => {
-            if (!hasLoadedOnceRef.current) {
-                setLoading(true);
-                fetchProtocols();
-                hasLoadedOnceRef.current = true;
-                return undefined;
-            }
+            let isActive = true;
 
-            handleSync();
-            return undefined;
-        }, [fetchProtocols, handleSync])
+            const fetchAndSync = async () => {
+                await handleSync({ isActive: () => isActive });
+            };
+
+            fetchAndSync();
+
+            return () => {
+                isActive = false;
+            };
+        }, [])
     );
 
     useEffect(() => {
         if (!userToken || !userInfo?.id) return undefined;
-
-        handleSync();
 
         const subscription = AppState.addEventListener('change', (state) => {
             if (state === 'active') {

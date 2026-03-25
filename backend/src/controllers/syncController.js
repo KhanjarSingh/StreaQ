@@ -49,22 +49,29 @@ const syncGoals = async (req, res) => {
             return res.status(200).json({
                 status: "review_required",
                 message: "One or more manual goals were completed too quickly and have been flagged for review.",
+                goals: syncedGoals,
                 syncedGoals,
                 flaggedManualGoals,
             });
         }
 
-        res.status(200).json({ status: "success", syncedGoals });
+        return res.status(200).json({
+            status: "success",
+            message: "Sync complete",
+            goals: syncedGoals,
+            syncedGoals,
+        });
     } catch (err) {
         console.error("Sync Error:", err);
         if (isMissingColumnError(err)) {
             return res.status(200).json({
                 status: "degraded",
                 message: "Sync skipped because the database schema is missing a required column.",
+                goals: [],
                 syncedGoals: [],
             });
         }
-        res.status(500).json({ message: err.message });
+        return res.status(500).json({ message: err.message });
     }
 };
 
