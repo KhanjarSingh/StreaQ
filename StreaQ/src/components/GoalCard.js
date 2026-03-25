@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, Platform, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Platform, TouchableOpacity, Animated } from 'react-native';
 import { IconButton } from 'react-native-paper';
 
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
@@ -21,6 +21,9 @@ const GoalCard = ({
     disabled = false,
     actionLabel,
     actionSlot,
+    syncStateLabel,
+    syncStateColor = '#FACC15',
+    syncPulseOpacity = 1,
 }) => {
     const meta = PROTOCOL_META[goal.protocolType] || PROTOCOL_META.MANUAL;
 
@@ -44,10 +47,12 @@ const GoalCard = ({
                     <View>
                         <Text style={[styles.title, { color }]}>{goal.protocolDisplayName || meta.label}</Text>
                         {goal.manualTaskDetails ? <Text style={styles.subtitle}>{goal.manualTaskDetails}</Text> : null}
-                        {!goal.manualTaskDetails && goal.platformUsername ? <Text style={styles.subtitle}>HANDLE: {goal.platformUsername}</Text> : null}
+                        {!goal.manualTaskDetails && goal.platformUsername ? <Text style={styles.usernameTag}>{`usr: @${goal.platformUsername}`}</Text> : null}
                     </View>
                 </View>
-                {actionSlot || (actionLabel ? <Text style={styles.action}>{actionLabel}</Text> : null)}
+                {syncStateLabel
+                    ? <Animated.Text style={[styles.syncState, { color: syncStateColor, opacity: syncPulseOpacity }]}>{syncStateLabel}</Animated.Text>
+                    : actionSlot || (actionLabel ? <Text style={styles.action}>{actionLabel}</Text> : null)}
             </View>
 
             <View style={styles.middle}>
@@ -110,6 +115,17 @@ const styles = StyleSheet.create({
         fontFamily: MONO,
         fontSize: 9,
         marginTop: 2,
+    },
+    usernameTag: {
+        color: '#00FF41',
+        fontFamily: MONO,
+        fontSize: 10,
+        marginTop: 4,
+    },
+    syncState: {
+        fontFamily: MONO,
+        fontSize: 10,
+        fontWeight: '700',
     },
     middle: {
         marginTop: 18,

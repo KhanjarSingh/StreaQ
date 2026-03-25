@@ -23,6 +23,24 @@ const safePrismaCall = async (label, operation, fallbackValue) => {
     }
 };
 
+const getIstDayBounds = () => {
+    const nowIst = DateTime.now().setZone(IST_TIMEZONE);
+    return {
+        startOfDay: nowIst.startOf('day'),
+        endOfDay: nowIst.endOf('day'),
+    };
+};
+
+const isUnixTimestampTodayInIst = (timestampSeconds) => {
+    const parsedTimestamp = Number(timestampSeconds);
+    if (!Number.isFinite(parsedTimestamp)) return false;
+
+    const submissionTime = DateTime.fromSeconds(parsedTimestamp, { zone: 'utc' }).setZone(IST_TIMEZONE);
+    const { startOfDay, endOfDay } = getIstDayBounds();
+
+    return submissionTime >= startOfDay && submissionTime <= endOfDay;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GITHUB  – today's contribution count via GraphQL
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,30 +91,26 @@ const getGithubContributions = async (username, token) => {
 // LEETCODE  – fetch accepted submission totals via public GraphQL API
 // ─────────────────────────────────────────────────────────────────────────────
 
-const fetchLeetCodeSubmissions = async (username) => {
-    try {
-        const query = `
-            query userProgress($username: String!) {
-                matchedUser(username: $username) {
-                    submitStats {
-                        acSubmissionNum {
-                            difficulty
-                            count
-                        }
-                    }
-                }
-            }
-        `;
+const verifyLeetCodeDaily = async (username) => {
+    if (!username) return 0;
 
-        const res = await axios.post(
-            'https://leetcode.com/graphql',
-            { query, variables: { username } },
-            { headers: { 'Content-Type': 'application/json', 'Referer': 'https://leetcode.com' } }
+    try {
+        const response = await axios.get(
+            `https://alfa-leetcode-api.onrender.com/${encodeURIComponent(username)}/acSubmission`
         );
 
-        const accepted = res.data?.data?.matchedUser?.submitStats?.acSubmissionNum || [];
-        const total = accepted.reduce((sum, item) => sum + Number(item?.count || 0), 0);
-        return Number.isFinite(total) ? total : 0;
+        const submissions = Array.isArray(response.data) ? response.data : [];
+        const solvedToday = new Set();
+
+        submissions.forEach((submission) => {
+            if (!isUnixTimestampTodayInIst(submission?.timestamp)) return;
+            const slug = submission?.titleSlug;
+            if (typeof slug === 'string' && slug.trim()) {
+                solvedToday.add(slug.trim());
+            }
+        });
+
+        return solvedToday.size;
     } catch (e) {
         console.error('[LEETCODE_FETCH_ERROR]', e.message);
         return 0;
@@ -107,19 +121,34 @@ const fetchLeetCodeSubmissions = async (username) => {
 // CODEFORCES  – unique accepted problems via public API
 // ─────────────────────────────────────────────────────────────────────────────
 
-const getCodeforcesSubmissions = async (username) => {
+const verifyCodeforcesDaily = async (username) => {
+    if (!username) return 0;
+
     try {
         const response = await axios.get(
-            `https://codeforces.com/api/user.status?handle=${username}`
+            `https://codeforces.com/api/user.status?handle=${encodeURIComponent(username)}`
         );
 
         if (response.data.status !== 'OK') return 0;
 
-        const acceptedProblemIds = new Set(
-            response.data.result
-                .filter((submission) => submission.verdict === 'OK' && submission.problem?.contestId && submission.problem?.index)
-                .map((submission) => `${submission.problem.contestId}-${submission.problem.index}`)
-        );
+        const submissions = Array.isArray(response.data?.result) ? response.data.result : [];
+        const acceptedProblemIds = new Set();
+
+        submissions.forEach((submission) => {
+            if (submission?.verdict !== 'OK') return;
+            if (!isUnixTimestampTodayInIst(submission?.creationTimeSeconds)) return;
+
+            const problemId = submission?.problem?.name
+                || (
+                    submission?.problem?.contestId && submission?.problem?.index
+                        ? `${submission.problem.contestId}-${submission.problem.index}`
+                        : null
+                );
+
+            if (problemId) {
+                acceptedProblemIds.add(problemId);
+            }
+        });
 
         return acceptedProblemIds.size;
     } catch (e) {
@@ -161,9 +190,9 @@ const syncAutomatedGoals = async (userId) => {
         if (platform === 'GITHUB' && user.githubProfile?.accessToken) {
             count = await getGithubContributions(user.githubProfile.login, user.githubProfile.accessToken);
         } else if (platform === 'LEETCODE') {
-            count = await fetchLeetCodeSubmissions(goal.platformUsername || user.username);
+            count = await verifyLeetCodeDaily(goal.platformUsername || user.username);
         } else if (platform === 'CODEFORCES') {
-            count = await getCodeforcesSubmissions(goal.platformUsername || user.username);
+            count = await verifyCodeforcesDaily(goal.platformUsername || user.username);
         }
 
         const isCompleted = count >= goal.targetCount;
@@ -269,4 +298,9 @@ const getGithubFullProfile = async (login, token) => {
     };
 };
 
-module.exports = { syncAutomatedGoals, getGithubFullProfile, fetchLeetCodeSubmissions };
+module.exports = {
+    syncAutomatedGoals,
+    getGithubFullProfile,
+    verifyLeetCodeDaily,
+    verifyCodeforcesDaily,
+};

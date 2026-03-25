@@ -219,6 +219,7 @@ const HomeScreen = ({ navigation }) => {
     const [verifying, setVerifying] = useState(false);
     const [failureCountdown, setFailureCountdown] = useState(null);
     const failureTimerRef = useRef(null);
+    const hasLoadedOnceRef = useRef(false);
 
     const pulseAnim = useRef(new Animated.Value(1)).current;
     useEffect(() => {
@@ -253,13 +254,6 @@ const HomeScreen = ({ navigation }) => {
             setLoading(false);
         }
     }, [logout, userInfo?.timezone, userToken]);
-
-    useFocusEffect(
-        useCallback(() => {
-            setLoading(true);
-            fetchProtocols();
-        }, [fetchProtocols])
-    );
 
     useEffect(() => {
         if (!Device.isDevice) {
@@ -327,6 +321,20 @@ const HomeScreen = ({ navigation }) => {
             setSyncing(false);
         }
     }, [fetchProtocols, syncing, userInfo?.id, userToken]);
+
+    useFocusEffect(
+        useCallback(() => {
+            if (!hasLoadedOnceRef.current) {
+                setLoading(true);
+                fetchProtocols();
+                hasLoadedOnceRef.current = true;
+                return undefined;
+            }
+
+            handleSync();
+            return undefined;
+        }, [fetchProtocols, handleSync])
+    );
 
     useEffect(() => {
         if (!userToken || !userInfo?.id) return undefined;
@@ -475,7 +483,7 @@ const HomeScreen = ({ navigation }) => {
                         <Text style={styles.onlineText}>ONLINE</Text>
                     </View>
                     <TouchableOpacity style={styles.syncChip} onPress={handleSync} disabled={syncing}>
-                        <Text style={styles.syncText}>{syncing ? 'SYNCING...' : 'FORCE SYNC'}</Text>
+                        <Text style={styles.syncText}>{syncing ? '[ FORCE_SYNC ]' : '[ FORCE_SYNC ]'}</Text>
                     </TouchableOpacity>
                 </View>
             </View>
@@ -501,7 +509,7 @@ const HomeScreen = ({ navigation }) => {
                             Activate only the missions you want StreaQ to monitor. Each protocol tracks its own target, deadline, reminder cadence, and punishment level.
                         </Text>
                         <TouchableOpacity style={styles.emptyButton} onPress={() => navigation.navigate('ProtocolConfig')}>
-                            <Text style={styles.emptyButtonText}>[ INITIALIZE PROTOCOL ]</Text>
+                            <Text style={styles.emptyButtonText}>[ INITIALIZE NEW PROTOCOL ]</Text>
                         </TouchableOpacity>
                         {!githubConnected ? <Text style={styles.emptyHint}>GitHub OAuth is optional. Manual and LeetCode protocols can be configured immediately.</Text> : null}
                     </View>
@@ -524,6 +532,9 @@ const HomeScreen = ({ navigation }) => {
                                     progressLabel={`${goal.currentCount} / ${goal.targetValue} ${unitLabel}`}
                                     footerLeft={`${goal.nextReminderAt} IST • ${goal.reminderLabel}`}
                                     footerRight={`${goal.dailyDeadline} IST • ${formatCountdown(goal.secondsRemaining)}`}
+                                    syncStateLabel={syncing ? '> FETCHING_DATA...' : undefined}
+                                    syncStateColor="#FACC15"
+                                    syncPulseOpacity={syncing ? pulseAnim : 1}
                                     actionSlot={isManualIncomplete ? (
                                         <TouchableOpacity
                                             style={styles.executeChip}
@@ -678,6 +689,8 @@ const styles = StyleSheet.create({
         backgroundColor: '#0D1621',
         borderWidth: 1,
         borderColor: '#1A2B3F',
+        minHeight: 360,
+        justifyContent: 'center',
     },
     emptyEyebrow: {
         color: '#58A6FF',
@@ -702,16 +715,16 @@ const styles = StyleSheet.create({
     emptyButton: {
         marginTop: 24,
         borderRadius: 18,
-        borderWidth: 1,
+        borderWidth: 2,
         borderColor: '#00FF41',
-        paddingVertical: 16,
+        paddingVertical: 22,
         alignItems: 'center',
-        backgroundColor: 'rgba(0,255,65,0.1)',
+        backgroundColor: 'rgba(0,255,65,0.16)',
     },
     emptyButtonText: {
         color: '#00FF41',
         fontFamily: MONO,
-        fontSize: 12,
+        fontSize: 16,
         fontWeight: '700',
     },
     emptyHint: {
