@@ -16,7 +16,8 @@ import { AuthContext } from '../context/AuthContext';
 import client from '../api/client';
 
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
-const PROTOCOLS = ['GITHUB', 'LEETCODE', 'MANUAL'];
+const PROTOCOLS = ['GITHUB', 'LEETCODE', 'CODEFORCES', 'MANUAL'];
+const IST_TIMEZONE = 'Asia/Kolkata';
 
 const ProtocolRow = ({ protocolType, goal, onToggle, onEdit, githubConnected }) => {
     const isActive = Boolean(goal?.isActive);
@@ -28,7 +29,7 @@ const ProtocolRow = ({ protocolType, goal, onToggle, onEdit, githubConnected }) 
                 <Text style={styles.protocolTitle}>{`PROTOCOL_${protocolType}`}</Text>
                 <Text style={styles.protocolMeta}>
                     {isActive
-                        ? `${goal.targetValue} target • ${goal.dailyDeadline} • ${goal.reminderFrequency}`
+                        ? `${goal.targetValue} target • ${goal.dailyDeadline} IST • ${goal.reminderFrequency}${goal.platformUsername ? ` • ${goal.platformUsername}` : ''}`
                         : blocked
                             ? 'Connect GitHub via OAuth to activate.'
                             : 'Inactive'}
@@ -207,7 +208,7 @@ const ProfileScreen = ({ navigation }) => {
                         <IconButton icon="clock-outline" iconColor="#58A6FF" size={18} style={styles.infoIcon} />
                         <View style={{ flex: 1 }}>
                             <Text style={styles.infoLabel}>TIMEZONE</Text>
-                            <Text style={styles.infoValue}>{user?.timezone || 'UTC'}</Text>
+                            <Text style={styles.infoValue}>{IST_TIMEZONE}</Text>
                         </View>
                     </View>
                     <View style={styles.infoCard}>

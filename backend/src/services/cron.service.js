@@ -2,6 +2,7 @@ const { PrismaClient } = require('@prisma/client');
 const { DateTime } = require('luxon');
 const { sendWarningNotification, sendCriticalNotification } = require('./notification.service');
 const prisma = new PrismaClient();
+const IST_TIMEZONE = 'Asia/Kolkata';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SYSTEM LOG HELPER
@@ -20,18 +21,16 @@ const writeSystemLog = async (userId, level, message) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const dispatchWarnings = async () => {
-    // Fetch all non-completed goals with their user's timezone
+    // Fetch all non-completed goals using the development-wide IST clock.
     const goals = await prisma.goal.findMany({
         where: { isCompleted: false, isActive: true },
-        include: { user: { select: { id: true, timezone: true, expoPushToken: true } } }
+        include: { user: { select: { id: true, expoPushToken: true } } }
     });
 
     for (const goal of goals) {
-        const tz = goal.user.timezone || 'UTC';
-        const userNow = DateTime.now().setZone(tz);
-        const userNowStr = userNow.toFormat('HH:mm'); // e.g. "20:00"
+        const userNow = DateTime.now().setZone(IST_TIMEZONE);
 
-        // Parse deadline in user's timezone
+        // Parse deadline in IST.
         const [dh, dm] = goal.checkInterval.split(':').map(Number);
         const deadline = userNow.set({ hour: dh, minute: dm, second: 0, millisecond: 0 });
         const minutesLeft = Math.round(deadline.diff(userNow, 'minutes').minutes);
@@ -59,19 +58,18 @@ const dispatchWarnings = async () => {
 
 const evaluateGoalConsequences = async () => {
     try {
-        // Fetch non-completed goals including the user's timezone
+        // Fetch non-completed goals and evaluate them against IST only.
         const goals = await prisma.goal.findMany({
             where: { isCompleted: false, isActive: true },
             include: {
-                user: { select: { id: true, timezone: true, lastSyncedAt: true, expoPushToken: true } }
+                user: { select: { id: true, lastSyncedAt: true, expoPushToken: true } }
             }
         });
 
         for (const goal of goals) {
-            const tz = goal.user.timezone || 'UTC';
-            const userNow = DateTime.now().setZone(tz);
+            const userNow = DateTime.now().setZone(IST_TIMEZONE);
 
-            // Parse the goal's checkInterval ("HH:MM") as a time today in user's tz
+            // Parse the goal's checkInterval ("HH:MM") as a time today in IST.
             const [dh, dm] = goal.checkInterval.split(':').map(Number);
             const deadlineToday = userNow.set({ hour: dh, minute: dm, second: 0, millisecond: 0 });
 
@@ -86,7 +84,7 @@ const evaluateGoalConsequences = async () => {
             // If the user's last sync happened within the 5-min window BEFORE the
             // deadline, the platform API may still be propagating. Give benefit of doubt.
             if (goal.lastSyncedAt) {
-                const syncedAt = DateTime.fromJSDate(goal.lastSyncedAt).setZone(tz);
+                const syncedAt = DateTime.fromJSDate(goal.lastSyncedAt).setZone(IST_TIMEZONE);
                 const syncMinutesPastDeadline = Math.round(deadlineToday.diff(syncedAt, 'minutes').minutes);
                 // Synced within 5 minutes BEFORE deadline — still within grace
                 if (syncMinutesPastDeadline >= 0 && syncMinutesPastDeadline <= 5) {
@@ -112,7 +110,7 @@ const evaluateGoalConsequences = async () => {
                     goalId: goal.id,
                     userId: goal.userId,
                     type: 'TERMINAL_FAILURE',
-                    reason: `Failed to meet ${goal.targetCount} ${goal.title} by ${goal.checkInterval} (${tz}). Final count: ${goal.currentCount}.`
+                    reason: `Failed to meet ${goal.targetCount} ${goal.title} by ${goal.checkInterval} (${IST_TIMEZONE}). Final count: ${goal.currentCount}.`
                 }
             });
 
@@ -139,7 +137,7 @@ const evaluateGoalConsequences = async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const startCronJobs = () => {
-    console.log('[CRON] DeathWatch + WarningDispatcher initialised.');
+    console.log(`[CRON] DeathWatch + WarningDispatcher initialised in ${IST_TIMEZONE}.`);
 
     const tick = () => {
         evaluateGoalConsequences();

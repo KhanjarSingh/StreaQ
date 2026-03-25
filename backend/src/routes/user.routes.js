@@ -2,6 +2,7 @@ const usersRouter = require('express').Router();
 const { authMiddleware } = require('../middleware/auth');
 const prisma = require('../config/db');
 const { getGithubFullProfile } = require('../services/platform.service');
+const IST_TIMEZONE = 'Asia/Kolkata';
 
 // GET /api/users/me  – minimal user for auth checks
 usersRouter.get('/me', authMiddleware, async (req, res) => {
@@ -13,8 +14,8 @@ usersRouter.get('/me', authMiddleware, async (req, res) => {
                     id: true,
                     username: true,
                     email: true,
-                    avatarUrl: true,
-                    timezone: true,
+                avatarUrl: true,
+                timezone: true,
                     githubProfile: true,
                 }
             }),
@@ -30,6 +31,7 @@ usersRouter.get('/me', authMiddleware, async (req, res) => {
         if (!user) return res.status(404).json({ message: 'User not found' });
         res.json({
             ...user,
+            timezone: IST_TIMEZONE,
             protocolPromptRequired: Boolean(protocolPromptGoal),
             pendingProtocolType: protocolPromptGoal?.protocolType || null,
         });
@@ -93,7 +95,7 @@ usersRouter.get('/profile', authMiddleware, async (req, res) => {
                 username: user.username,
                 email: user.email,
                 avatarUrl: user.avatarUrl,
-                timezone: user.timezone,
+                timezone: IST_TIMEZONE,
                 githubLogin: user.githubProfile?.login || null,
                 githubUrl: user.githubProfile?.htmlUrl || null,
                 protocolPromptRequired: protocols.some((protocol) => protocol.requiresConfiguration && protocol.isActive),
@@ -109,14 +111,10 @@ usersRouter.get('/profile', authMiddleware, async (req, res) => {
 
 // PATCH /api/users/me  – update timezone
 usersRouter.patch('/me', authMiddleware, async (req, res) => {
-    const { timezone } = req.body;
-    if (!timezone || typeof timezone !== 'string') {
-        return res.status(400).json({ message: 'timezone string required' });
-    }
     try {
         const user = await prisma.user.update({
             where: { id: req.user.id },
-            data: { timezone },
+            data: { timezone: IST_TIMEZONE },
             select: { id: true, timezone: true }
         });
         res.json(user);

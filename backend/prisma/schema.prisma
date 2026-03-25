@@ -76,7 +76,7 @@ model User {
     email     String? @unique
     username  String  @default("User")
     avatarUrl String?
-    timezone  String  @default("UTC")
+    timezone  String  @default("Asia/Kolkata")
 
     passwordHash  String?
     emailVerified Boolean @default(false)
@@ -130,6 +130,7 @@ enum SourcePlatform {
 enum ProtocolType {
   GITHUB
   LEETCODE
+  CODEFORCES
   MANUAL
 }
 
@@ -156,6 +157,9 @@ model Goal {
   type            GoalType
   protocolType    ProtocolType   @default(MANUAL)
   sourcePlatform  SourcePlatform
+  platformUsername String?
+  manualTaskName   String?
+  manualTaskDetails String?
   isActive        Boolean        @default(true)
   requiresConfiguration Boolean  @default(false)
   targetValue     Int            @default(1)

@@ -1,7 +1,9 @@
 const prisma = require('../config/db');
 const { writeSystemLog } = require('../services/cron.service');
+const { DateTime } = require('luxon');
 
-const PROTOCOL_TYPES = ['GITHUB', 'LEETCODE', 'MANUAL'];
+const IST_TIMEZONE = 'Asia/Kolkata';
+const PROTOCOL_TYPES = ['GITHUB', 'LEETCODE', 'CODEFORCES', 'MANUAL'];
 const REMINDER_FREQUENCIES = ['FIFTEEN_MINUTES', 'THIRTY_MINUTES', 'ONE_HOUR'];
 const PUNISHMENT_LEVELS = ['STRICT', 'HARSH', 'RELENTLESS'];
 
@@ -27,6 +29,16 @@ const PROTOCOL_DEFAULTS = {
         type: 'AUTOMATED',
         sourcePlatform: 'LEETCODE',
         title: 'LeetCode Protocol',
+        targetValue: 1,
+        dailyDeadline: '22:30',
+        reminderFrequency: 'THIRTY_MINUTES',
+        punishmentLevel: 'STRICT',
+    },
+    CODEFORCES: {
+        protocolType: 'CODEFORCES',
+        type: 'AUTOMATED',
+        sourcePlatform: 'CODEFORCES',
+        title: 'Codeforces Protocol',
         targetValue: 1,
         dailyDeadline: '22:30',
         reminderFrequency: 'THIRTY_MINUTES',
@@ -64,11 +76,17 @@ const buildWarningSchedule = (reminderFrequency) => {
     return [minutes];
 };
 
+const normalizeOptionalString = (value) => {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+};
+
 const normalizeProtocolInput = (body = {}, fallbackProtocolType) => {
     const protocolType = body.protocolType || fallbackProtocolType;
 
     if (!PROTOCOL_TYPES.includes(protocolType)) {
-        return { error: 'protocolType must be GITHUB, LEETCODE, or MANUAL' };
+        return { error: 'protocolType must be GITHUB, LEETCODE, CODEFORCES, or MANUAL' };
     }
 
     const targetValue = Number(body.targetValue);
@@ -88,12 +106,27 @@ const normalizeProtocolInput = (body = {}, fallbackProtocolType) => {
         return { error: 'punishmentLevel must be STRICT, HARSH, or RELENTLESS' };
     }
 
+    const platformUsername = normalizeOptionalString(body.platformUsername);
+    const manualTaskName = normalizeOptionalString(body.manualTaskName);
+    const manualTaskDetails = normalizeOptionalString(body.manualTaskDetails);
+
+    if ((protocolType === 'LEETCODE' || protocolType === 'CODEFORCES') && !platformUsername) {
+        return { error: 'platformUsername is required for LeetCode and Codeforces protocols' };
+    }
+
+    if (protocolType === 'MANUAL' && !manualTaskName) {
+        return { error: 'manualTaskName is required for manual protocols' };
+    }
+
     return {
         protocolType,
         targetValue,
         dailyDeadline: body.dailyDeadline,
         reminderFrequency: body.reminderFrequency,
         punishmentLevel: body.punishmentLevel,
+        platformUsername,
+        manualTaskName,
+        manualTaskDetails,
     };
 };
 
@@ -101,12 +134,18 @@ const buildProtocolPayload = (input, existingGoal) => {
     const defaults = PROTOCOL_DEFAULTS[input.protocolType];
     const baseCount = existingGoal?.currentCount ?? 0;
     const normalizedCount = Math.min(baseCount, input.targetValue);
+    const title = input.protocolType === 'MANUAL'
+        ? input.manualTaskName
+        : defaults.title;
 
     return {
-        title: defaults.title,
+        title,
         type: defaults.type,
         protocolType: input.protocolType,
         sourcePlatform: defaults.sourcePlatform,
+        platformUsername: input.platformUsername,
+        manualTaskName: input.manualTaskName,
+        manualTaskDetails: input.manualTaskDetails,
         isActive: true,
         requiresConfiguration: false,
         targetValue: input.targetValue,
@@ -122,35 +161,42 @@ const buildProtocolPayload = (input, existingGoal) => {
     };
 };
 
-const getSecondsUntil = (hhmm) => {
-    const [hour = 0, minute = 0] = (hhmm || '22:30').split(':').map(Number);
-    const now = new Date();
-    const target = new Date(now);
-    target.setHours(hour, minute, 0, 0);
-    if (target <= now) target.setDate(target.getDate() + 1);
-    return Math.max(0, Math.floor((target.getTime() - now.getTime()) / 1000));
+const getDeadlineDateTime = (hhmm) => {
+    const [hour = 22, minute = 30] = (hhmm || '22:30').split(':').map(Number);
+    const now = DateTime.now().setZone(IST_TIMEZONE);
+    let target = now.set({ hour, minute, second: 0, millisecond: 0 });
+    if (target <= now) target = target.plus({ days: 1 });
+    return target;
 };
 
-const formatClock = (date) => date.toTimeString().slice(0, 5);
+const getSecondsUntil = (hhmm) => Math.max(
+    0,
+    Math.floor(getDeadlineDateTime(hhmm).diff(DateTime.now().setZone(IST_TIMEZONE), 'seconds').seconds)
+);
 
 const getNextReminderTime = (goal) => {
     const minutes = REMINDER_TO_MINUTES[goal.reminderFrequency] || 30;
-    const [hour = 0, minute = 0] = (goal.dailyDeadline || goal.checkInterval || '22:30').split(':').map(Number);
-    const target = new Date();
-    target.setHours(hour, minute, 0, 0);
-    if (target <= new Date()) target.setDate(target.getDate() + 1);
-    target.setMinutes(target.getMinutes() - minutes);
-    return formatClock(target);
+    return getDeadlineDateTime(goal.dailyDeadline || goal.checkInterval)
+        .minus({ minutes })
+        .toFormat('HH:mm');
 };
 
 const serializeGoal = (goal) => {
     const secondsRemaining = getSecondsUntil(goal.dailyDeadline || goal.checkInterval);
+    const deadline = getDeadlineDateTime(goal.dailyDeadline || goal.checkInterval);
+    const protocolDisplayName = goal.protocolType === 'MANUAL'
+        ? `PROTOCOL_MANUAL: ${(goal.manualTaskName || goal.title || 'CUSTOM_TASK').toUpperCase().replace(/\s+/g, '_')}`
+        : `PROTOCOL_${goal.protocolType}`;
 
     return {
         ...goal,
+        timezone: IST_TIMEZONE,
+        protocolDisplayName,
+        displayTitle: goal.protocolType === 'MANUAL' ? (goal.manualTaskName || goal.title) : goal.title,
         nextReminderAt: getNextReminderTime(goal),
         reminderLabel: formatReminderLabel(goal.reminderFrequency),
         secondsRemaining,
+        deadlineAtIst: deadline.toISO(),
     };
 };
 
@@ -187,7 +233,7 @@ const getGoals = async (req, res) => {
             goals: serializedGoals,
             activeGoals,
             protocolState,
-            timezone: user?.timezone || 'UTC',
+            timezone: IST_TIMEZONE,
             githubConnected: Boolean(user?.githubProfile?.id),
         });
     } catch (error) {
@@ -332,7 +378,8 @@ const verifyManualGoal = async (req, res) => {
             return res.status(404).json({ message: 'Manual protocol not found' });
         }
 
-        const requiresGymEvidence = goal.title?.toLowerCase().includes('gym');
+        const manualName = (goal.manualTaskName || goal.title || '').toLowerCase();
+        const requiresGymEvidence = manualName.includes('gym');
         if (requiresGymEvidence && !link?.trim()) {
             return res.status(400).json({ message: 'Gym protocols require an evidence photo before verification.' });
         }

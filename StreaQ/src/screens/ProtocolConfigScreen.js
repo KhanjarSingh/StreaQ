@@ -6,7 +6,7 @@ import { AuthContext } from '../context/AuthContext';
 import client from '../api/client';
 
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
-const PROTOCOL_TYPES = ['GITHUB', 'LEETCODE', 'MANUAL'];
+const PROTOCOL_TYPES = ['GITHUB', 'LEETCODE', 'CODEFORCES', 'MANUAL'];
 const REMINDER_OPTIONS = [
     { value: 'FIFTEEN_MINUTES', label: '15m' },
     { value: 'THIRTY_MINUTES', label: '30m' },
@@ -46,7 +46,12 @@ const ProtocolConfigScreen = ({ navigation, route }) => {
     const [dailyDeadline, setDailyDeadline] = useState(existingGoal?.dailyDeadline || '22:30');
     const [reminderFrequency, setReminderFrequency] = useState(existingGoal?.reminderFrequency || 'THIRTY_MINUTES');
     const [punishmentLevel, setPunishmentLevel] = useState(existingGoal?.punishmentLevel || 'STRICT');
+    const [platformUsername, setPlatformUsername] = useState(existingGoal?.platformUsername || '');
+    const [manualTaskName, setManualTaskName] = useState(existingGoal?.manualTaskName || existingGoal?.title || '');
+    const [manualTaskDetails, setManualTaskDetails] = useState(existingGoal?.manualTaskDetails || '');
     const [saving, setSaving] = useState(false);
+    const isPlatformUsernameRequired = protocolType === 'LEETCODE' || protocolType === 'CODEFORCES';
+    const isManualProtocol = protocolType === 'MANUAL';
 
     const heading = existingGoal ? `EDIT ${existingGoal.protocolType} PROTOCOL` : `ACTIVATE ${protocolType} PROTOCOL`;
 
@@ -62,6 +67,16 @@ const ProtocolConfigScreen = ({ navigation, route }) => {
             return;
         }
 
+        if (isPlatformUsernameRequired && !platformUsername.trim()) {
+            Alert.alert('USERNAME REQUIRED', 'Enter the platform username for this protocol.');
+            return;
+        }
+
+        if (isManualProtocol && !manualTaskName.trim()) {
+            Alert.alert('TASK NAME REQUIRED', 'Manual protocols need a task name.');
+            return;
+        }
+
         setSaving(true);
         try {
             const payload = {
@@ -70,6 +85,9 @@ const ProtocolConfigScreen = ({ navigation, route }) => {
                 dailyDeadline,
                 reminderFrequency,
                 punishmentLevel,
+                platformUsername: platformUsername.trim() || undefined,
+                manualTaskName: manualTaskName.trim() || undefined,
+                manualTaskDetails: manualTaskDetails.trim() || undefined,
             };
 
             if (existingGoal?.id) {
@@ -102,7 +120,7 @@ const ProtocolConfigScreen = ({ navigation, route }) => {
                 <Text style={styles.eyebrow}>OPERATOR PROTOCOL CONFIG</Text>
                 <Text style={styles.title}>{heading}</Text>
                 <Text style={styles.subTitle}>
-                    Define target value, deadline, reminders, and punishment intensity before this protocol goes live.
+                    Activate only what you want tracked. All schedules are enforced in IST while the protocol engine is stabilizing.
                 </Text>
 
                 {!existingGoal ? (
@@ -121,8 +139,50 @@ const ProtocolConfigScreen = ({ navigation, route }) => {
                     />
                 </View>
 
+                {isPlatformUsernameRequired ? (
+                    <View style={styles.section}>
+                        <Text style={styles.label}>{`${protocolType} USERNAME`}</Text>
+                        <TextInput
+                            style={styles.input}
+                            value={platformUsername}
+                            onChangeText={setPlatformUsername}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            placeholder={protocolType === 'LEETCODE' ? 'e.g. relentless_operator' : 'e.g. tourist'}
+                            placeholderTextColor="#4B5563"
+                        />
+                    </View>
+                ) : null}
+
+                {isManualProtocol ? (
+                    <>
+                        <View style={styles.section}>
+                            <Text style={styles.label}>TASK NAME</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={manualTaskName}
+                                onChangeText={setManualTaskName}
+                                placeholder="e.g. Gym"
+                                placeholderTextColor="#4B5563"
+                            />
+                        </View>
+
+                        <View style={styles.section}>
+                            <Text style={styles.label}>TASK DETAILS</Text>
+                            <TextInput
+                                style={[styles.input, styles.multilineInput]}
+                                value={manualTaskDetails}
+                                onChangeText={setManualTaskDetails}
+                                placeholder="e.g. Hypertrophy Push Day"
+                                placeholderTextColor="#4B5563"
+                                multiline
+                            />
+                        </View>
+                    </>
+                ) : null}
+
                 <View style={styles.section}>
-                    <Text style={styles.label}>DAILY DEADLINE</Text>
+                    <Text style={styles.label}>DAILY DEADLINE (IST)</Text>
                     <TextInput
                         style={styles.input}
                         value={dailyDeadline}
@@ -214,6 +274,10 @@ const styles = StyleSheet.create({
         paddingVertical: 14,
         fontFamily: MONO,
         fontSize: 14,
+    },
+    multilineInput: {
+        minHeight: 92,
+        textAlignVertical: 'top',
     },
     optionRow: {
         flexDirection: 'row',

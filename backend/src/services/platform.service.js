@@ -1,7 +1,9 @@
 const axios = require('axios');
 const { PrismaClient } = require('@prisma/client');
 const { writeSystemLog } = require('./cron.service');
+const { DateTime } = require('luxon');
 const prisma = new PrismaClient();
+const IST_TIMEZONE = 'Asia/Kolkata';
 
 const isMissingColumnError = (error) => error?.code === 'P2022';
 
@@ -53,7 +55,7 @@ const getGithubContributions = async (username, token) => {
         if (response.data.errors) return 0;
 
         const weeks = response.data.data.user.contributionsCollection.contributionCalendar.weeks;
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = DateTime.now().setZone(IST_TIMEZONE).toISODate();
 
         for (const week of weeks) {
             for (const day of week.contributionDays) {
@@ -68,37 +70,33 @@ const getGithubContributions = async (username, token) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LEETCODE  – fetch recent submissions via official GraphQL API
+// LEETCODE  – fetch accepted submission totals via public GraphQL API
 // ─────────────────────────────────────────────────────────────────────────────
 
 const fetchLeetCodeSubmissions = async (username) => {
     try {
         const query = `
-            query recentAcSubmissions($username: String!, $limit: Int!) {
-                recentAcSubmissionList(username: $username, limit: $limit) {
-                    titleSlug
-                    timestamp
+            query userProgress($username: String!) {
+                matchedUser(username: $username) {
+                    submitStats {
+                        acSubmissionNum {
+                            difficulty
+                            count
+                        }
+                    }
                 }
             }
         `;
 
         const res = await axios.post(
             'https://leetcode.com/graphql',
-            { query, variables: { username, limit: 20 } },
+            { query, variables: { username } },
             { headers: { 'Content-Type': 'application/json', 'Referer': 'https://leetcode.com' } }
         );
 
-        const submissions = res.data?.data?.recentAcSubmissionList || [];
-        if (!submissions.length) return 0;
-
-        const todayStr = new Date().toISOString().split('T')[0];
-        
-        const count = submissions.filter(sub => {
-            const subDate = new Date(parseInt(sub.timestamp) * 1000).toISOString().split('T')[0];
-            return subDate === todayStr;
-        }).length;
-
-        return count;
+        const accepted = res.data?.data?.matchedUser?.submitStats?.acSubmissionNum || [];
+        const total = accepted.reduce((sum, item) => sum + Number(item?.count || 0), 0);
+        return Number.isFinite(total) ? total : 0;
     } catch (e) {
         console.error('[LEETCODE_FETCH_ERROR]', e.message);
         return 0;
@@ -106,25 +104,24 @@ const fetchLeetCodeSubmissions = async (username) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CODEFORCES  – submissions today via public API
+// CODEFORCES  – unique accepted problems via public API
 // ─────────────────────────────────────────────────────────────────────────────
 
 const getCodeforcesSubmissions = async (username) => {
     try {
         const response = await axios.get(
-            `https://codeforces.com/api/user.status?handle=${username}&from=1&count=20`
+            `https://codeforces.com/api/user.status?handle=${username}`
         );
 
         if (response.data.status !== 'OK') return 0;
 
-        const todayStr = new Date().toISOString().split('T')[0];
-        const todayStart = new Date(todayStr).getTime() / 1000; // unix timestamp
-
-        const accepted = response.data.result.filter(sub =>
-            sub.verdict === 'OK' && sub.creationTimeSeconds >= todayStart
+        const acceptedProblemIds = new Set(
+            response.data.result
+                .filter((submission) => submission.verdict === 'OK' && submission.problem?.contestId && submission.problem?.index)
+                .map((submission) => `${submission.problem.contestId}-${submission.problem.index}`)
         );
 
-        return accepted.length;
+        return acceptedProblemIds.size;
     } catch (e) {
         console.error('[CODEFORCES_FETCH_ERROR]', e.message);
         return 0;
@@ -164,9 +161,9 @@ const syncAutomatedGoals = async (userId) => {
         if (platform === 'GITHUB' && user.githubProfile?.accessToken) {
             count = await getGithubContributions(user.githubProfile.login, user.githubProfile.accessToken);
         } else if (platform === 'LEETCODE') {
-            count = await fetchLeetCodeSubmissions(user.username);
+            count = await fetchLeetCodeSubmissions(goal.platformUsername || user.username);
         } else if (platform === 'CODEFORCES') {
-            count = await getCodeforcesSubmissions(user.username);
+            count = await getCodeforcesSubmissions(goal.platformUsername || user.username);
         }
 
         const isCompleted = count >= goal.targetCount;

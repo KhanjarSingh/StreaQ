@@ -5,11 +5,13 @@ import {
     ScrollView,
     Platform,
     TouchableOpacity,
+    Pressable,
     Modal,
     TextInput,
     Alert,
     Animated,
     ActivityIndicator,
+    AppState,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Text } from 'react-native-paper';
@@ -23,7 +25,7 @@ import client from '../api/client';
 import GoalCard from '../components/GoalCard';
 
 const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
-const HOLD_DURATION_MS = 1100;
+const HOLD_DURATION_MS = 2000;
 
 if (Device.isDevice) {
     Notifications.setNotificationHandler({
@@ -90,17 +92,15 @@ const HoldToConfirmButton = ({ label, color, disabled, onComplete }) => {
     });
 
     return (
-        <TouchableOpacity
+        <Pressable
             disabled={disabled}
-            activeOpacity={0.9}
             style={[styles.holdButton, { borderColor: color, opacity: disabled ? 0.65 : 1 }]}
             onPressIn={start}
             onPressOut={reset}
-            onPress={undefined}
         >
             <Animated.View style={[styles.holdFill, { backgroundColor: color, width }]} />
             <Text style={[styles.holdText, { color }]}>{label}</Text>
-        </TouchableOpacity>
+        </Pressable>
     );
 };
 
@@ -217,6 +217,8 @@ const HomeScreen = ({ navigation }) => {
     const [verificationNote, setVerificationNote] = useState('');
     const [showCamera, setShowCamera] = useState(false);
     const [verifying, setVerifying] = useState(false);
+    const [failureCountdown, setFailureCountdown] = useState(null);
+    const failureTimerRef = useRef(null);
 
     const pulseAnim = useRef(new Animated.Value(1)).current;
     useEffect(() => {
@@ -311,7 +313,7 @@ const HomeScreen = ({ navigation }) => {
         };
     }, [navigation, userToken]);
 
-    const handleSync = async () => {
+    const handleSync = useCallback(async () => {
         if (!userInfo?.id || syncing) return;
         setSyncing(true);
         try {
@@ -324,7 +326,21 @@ const HomeScreen = ({ navigation }) => {
         } finally {
             setSyncing(false);
         }
-    };
+    }, [fetchProtocols, syncing, userInfo?.id, userToken]);
+
+    useEffect(() => {
+        if (!userToken || !userInfo?.id) return undefined;
+
+        handleSync();
+
+        const subscription = AppState.addEventListener('change', (state) => {
+            if (state === 'active') {
+                handleSync();
+            }
+        });
+
+        return () => subscription.remove();
+    }, [handleSync, userInfo?.id, userToken]);
 
     const resetVerificationFlow = () => {
         setVerificationGoal(null);
@@ -354,7 +370,8 @@ const HomeScreen = ({ navigation }) => {
 
     const handleProceedVerification = async () => {
         if (!verificationGoal) return;
-        const isGymProtocol = verificationGoal.title?.toLowerCase().includes('gym') || verificationGoal.protocolType === 'MANUAL' && verificationGoal.title?.toLowerCase().includes('gym');
+        const goalName = (verificationGoal.manualTaskName || verificationGoal.title || '').toLowerCase();
+        const isGymProtocol = goalName.includes('gym');
         if (isGymProtocol) {
             setShowCamera(true);
             return;
@@ -366,18 +383,54 @@ const HomeScreen = ({ navigation }) => {
         const target = activeGoals.find((goal) => !goal.isCompleted) || activeGoals[0];
         if (!target) return;
 
-        try {
-            await client.post(`/api/goals/${target.id}/simulate-failure`, {}, {
-                headers: { Authorization: `Bearer ${userToken}` },
-            });
-            navigation.navigate('FailureGlitch');
-        } catch (error) {
-            Alert.alert('SIMULATION FAILED', 'Could not trigger the failure screen.');
-        }
+        if (failureCountdown !== null) return;
+
+        setFailureCountdown(5);
+        let secondsLeft = 5;
+        failureTimerRef.current = setInterval(() => {
+            secondsLeft -= 1;
+            if (secondsLeft > 0) {
+                setFailureCountdown(secondsLeft);
+                return;
+            }
+
+            clearInterval(failureTimerRef.current);
+            failureTimerRef.current = null;
+            setFailureCountdown(null);
+            Alert.alert(
+                'CONFIRM: Trigger System Failure?',
+                'This will dispatch the corruption state for testing.',
+                [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                        text: 'Yes',
+                        style: 'destructive',
+                        onPress: async () => {
+                            try {
+                                await client.post(`/api/goals/${target.id}/simulate-failure`, {}, {
+                                    headers: { Authorization: `Bearer ${userToken}` },
+                                });
+                                navigation.navigate('FailureGlitch');
+                            } catch (error) {
+                                Alert.alert('SIMULATION FAILED', 'Could not trigger the failure screen.');
+                            }
+                        },
+                    },
+                ]
+            );
+        }, 1000);
     };
 
+    useEffect(() => {
+        return () => {
+            if (failureTimerRef.current) {
+                clearInterval(failureTimerRef.current);
+            }
+        };
+    }, []);
+
     const needsConfiguration = activeGoals.find((goal) => goal.requiresConfiguration);
-    const isGymVerification = Boolean(verificationGoal?.title?.toLowerCase().includes('gym'));
+    const isGymVerification = Boolean((verificationGoal?.manualTaskName || verificationGoal?.title || '').toLowerCase().includes('gym'));
 
     if (loading) {
         return (
@@ -413,7 +466,7 @@ const HomeScreen = ({ navigation }) => {
                 <View>
                     <Text style={styles.eyebrow}>THE OPERATOR'S HUD</Text>
                     <Text style={styles.username}>{displayName}</Text>
-                    <Text style={styles.timezone}>TZ {timezone}</Text>
+                    <Text style={styles.timezone}>TZ IST • {timezone === 'Asia/Kolkata' ? 'LOCKED' : timezone}</Text>
                 </View>
 
                 <View style={styles.headerRight}>
@@ -443,7 +496,7 @@ const HomeScreen = ({ navigation }) => {
                 {activeGoals.length === 0 ? (
                     <View style={styles.emptyState}>
                         <Text style={styles.emptyEyebrow}>DISCIPLINE TRACKING, OPT-IN ONLY</Text>
-                        <Text style={styles.emptyTitle}>No active protocols armed.</Text>
+                        <Text style={styles.emptyTitle}>SYSTEM IDLE: NO PROTOCOLS ACTIVE</Text>
                         <Text style={styles.emptyBody}>
                             Activate only the missions you want StreaQ to monitor. Each protocol tracks its own target, deadline, reminder cadence, and punishment level.
                         </Text>
@@ -456,14 +509,21 @@ const HomeScreen = ({ navigation }) => {
                     <>
                         {activeGoals.map((goal) => {
                             const isManualIncomplete = goal.protocolType === 'MANUAL' && !goal.isCompleted;
+                            const unitLabel = goal.protocolType === 'GITHUB'
+                                ? 'COMMITS'
+                                : goal.protocolType === 'LEETCODE'
+                                    ? 'SOLVES'
+                                    : goal.protocolType === 'CODEFORCES'
+                                        ? 'PROBLEMS'
+                                        : 'SESSIONS';
                             return (
                                 <GoalCard
                                     key={goal.id}
                                     goal={goal}
                                     color={getProtocolColor(goal)}
-                                    progressLabel={`${goal.currentCount} / ${goal.targetValue} ${goal.protocolType === 'GITHUB' ? 'COMMITS' : goal.protocolType === 'LEETCODE' ? 'SOLVES' : 'SESSIONS'}`}
-                                    footerLeft={`${goal.nextReminderAt} • ${goal.reminderLabel}`}
-                                    footerRight={`${goal.dailyDeadline} • ${formatCountdown(goal.secondsRemaining)}`}
+                                    progressLabel={`${goal.currentCount} / ${goal.targetValue} ${unitLabel}`}
+                                    footerLeft={`${goal.nextReminderAt} IST • ${goal.reminderLabel}`}
+                                    footerRight={`${goal.dailyDeadline} IST • ${formatCountdown(goal.secondsRemaining)}`}
                                     actionSlot={isManualIncomplete ? (
                                         <TouchableOpacity
                                             style={styles.executeChip}
@@ -485,6 +545,13 @@ const HomeScreen = ({ navigation }) => {
                                 />
                             );
                         })}
+
+                        {failureCountdown !== null ? (
+                            <View style={styles.countdownCard}>
+                                <Text style={styles.countdownLabel}>{`> INITIATING CORRUPTION IN ${failureCountdown}...`}</Text>
+                                <Text style={styles.countdownMeta}>Safety confirm will appear before dispatch.</Text>
+                            </View>
+                        ) : null}
 
                         <TouchableOpacity style={styles.failureButton} onPress={handleSimulateFailure}>
                             <Text style={styles.failureButtonText}>[ TEST FAILURE PROTOCOL ]</Text>
@@ -667,6 +734,27 @@ const styles = StyleSheet.create({
         fontFamily: MONO,
         fontSize: 10,
         fontWeight: '700',
+    },
+    countdownCard: {
+        marginTop: 6,
+        marginBottom: 8,
+        borderWidth: 1,
+        borderColor: '#FF3B30',
+        borderRadius: 18,
+        padding: 14,
+        backgroundColor: 'rgba(255,59,48,0.08)',
+    },
+    countdownLabel: {
+        color: '#FFB4A8',
+        fontFamily: MONO,
+        fontSize: 11,
+        fontWeight: '700',
+    },
+    countdownMeta: {
+        color: '#8B949E',
+        fontFamily: MONO,
+        fontSize: 10,
+        marginTop: 6,
     },
     failureButton: {
         marginTop: 8,

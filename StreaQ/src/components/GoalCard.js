@@ -7,6 +7,7 @@ const MONO = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 const PROTOCOL_META = {
     GITHUB: { icon: 'github', label: 'PROTOCOL_GITHUB' },
     LEETCODE: { icon: 'code-braces', label: 'PROTOCOL_LEETCODE' },
+    CODEFORCES: { icon: 'lightning-bolt', label: 'PROTOCOL_CODEFORCES' },
     MANUAL: { icon: 'shield-check', label: 'PROTOCOL_MANUAL' },
 };
 
@@ -40,7 +41,11 @@ const GoalCard = ({
             <View style={styles.header}>
                 <View style={styles.titleRow}>
                     <IconButton icon={meta.icon} iconColor={color} size={18} style={styles.icon} />
-                    <Text style={[styles.title, { color }]}>{meta.label}</Text>
+                    <View>
+                        <Text style={[styles.title, { color }]}>{goal.protocolDisplayName || meta.label}</Text>
+                        {goal.manualTaskDetails ? <Text style={styles.subtitle}>{goal.manualTaskDetails}</Text> : null}
+                        {!goal.manualTaskDetails && goal.platformUsername ? <Text style={styles.subtitle}>HANDLE: {goal.platformUsername}</Text> : null}
+                    </View>
                 </View>
                 {actionSlot || (actionLabel ? <Text style={styles.action}>{actionLabel}</Text> : null)}
             </View>
@@ -99,6 +104,12 @@ const styles = StyleSheet.create({
         color: '#C9D1D9',
         fontFamily: MONO,
         fontSize: 10,
+    },
+    subtitle: {
+        color: '#6E7681',
+        fontFamily: MONO,
+        fontSize: 9,
+        marginTop: 2,
     },
     middle: {
         marginTop: 18,
